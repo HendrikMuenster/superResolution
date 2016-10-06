@@ -1,0 +1,180 @@
+
+\documentclass[final,leqno,onefignum,onetabnum]{article}
+
+\usepackage{amsmath}
+%\usepackage{amsthm}
+\usepackage{amsfonts}
+
+  \usepackage[caption=false]{subfig}
+  \usepackage{graphicx}
+  \usepackage{todonotes}
+  \usepackage{tikz,tikz-cd,pgf}
+
+
+  
+  \usepackage{algorithm}
+  \usepackage{algpseudocode}
+  
+  \usepackage{pgfplots}
+  \pgfplotsset{compat=1.12}
+  
+  \usepackage{multirow}
+  \newcommand{\R}{\mathbb{R}}
+  \newcommand{\N}[1]{\mathbb{N}^{#1}}
+  \newcommand{\1}[1]{\mathds{1}_{#1}}
+  \newcommand{\st}{\qquad\text{s. t.}\qquad}
+
+  \renewcommand{\liminf}[1]{\underset{#1}{\lim\inf}\;}
+  \renewcommand{\limsup}[1]{\underset{#1}{\lim\sup}\;}
+  
+  \newcommand{\CX}{\mathcal{X}}
+  \newcommand{\CY}{\mathcal{Y}}
+  \newcommand{\CZ}{\mathcal{Z}}
+  \newcommand{\dif}{\mathrm{d}}
+  
+  \DeclareMathOperator*{\argmin}{\arg \min}%
+  \DeclareMathOperator*{\argmax}{\arg \max}%
+  
+
+  %For pseudocode
+ \newcommand*\Let[2]{\State #1 $\gets$ #2}
+  
+
+\bibliographystyle{siam}
+
+\title{Joint Motion Estimation and Video Super-Resolution}
+%\author{Hendrik Dirks}
+
+
+\begin{document}
+	
+\maketitle
+
+\section{Problem Formulation}
+\subsection{Optical Flow}
+Let us consider the following semi-discrete formulation:
+For a domain $\Omega\subset\R^2$ and images $u^1,\ldots,u^n : \Omega\rightarrow\R$  we want to estimate the flow field $\boldsymbol{v}^i$ between each of the subsequent images $u^{i}$ and $u^{i+1}$. For this sake it is common to use the brightness constancy assumption 
+\begin{equation}
+	u^{i+1}(x+\boldsymbol{v}^i(x)) - u^i(x) = 0,\quad i=1,\ldots,n-1,x\in\Omega
+	\label{opticalFlowKomplett}
+\end{equation}
+to derive a connection between image intensities and the underlying flow. Due to the non-linearity (in terms of $\boldsymbol{v}^i(x)$) of this formulation, one often linearizes the first term and arrives at
+\begin{equation}
+	\boldsymbol{v}^i\cdot\nabla u^{i+1}(x) + u^{i+1}(x) - u^i(x) = 0.
+	\label{opticalFlowKlassisch}
+\end{equation}
+Unfortunately, due to the Taylor expansion, equation \eqref{opticalFlowKlassisch} is only valid for small displacements. Another way, which in theory may handle displacements of arbitrary magnitude, is to use a given flow field $\boldsymbol{\tilde{v}}^i$ and use a Taylor expansion of $u^{i+1}(x+\boldsymbol{v}^i(x))$ around some given flow field $\boldsymbol{\tilde{v}}^i$. The result is again a linear equation for $\boldsymbol{v}^i$ which requires evaluations of the input images at a shifted domain $x+\boldsymbol{\tilde{v}^i}$
+\begin{equation}
+	(\boldsymbol{v}^i-\boldsymbol{\tilde{v}}^i)\cdot\nabla u^{i+1}(x+\boldsymbol{\tilde{v}}^i) + u^{i+1}(x+\boldsymbol{\tilde{v}}^i) - u^i(x) = 0.
+	\label{opticalFlowBesser}
+\end{equation}
+By defining $\tilde{u}^{i+1} := u^{i+1}(x+\boldsymbol{\tilde{v}}^i)$ the left side of equation \eqref{opticalFlowBesser} becomes
+\begin{equation}
+	\rho(\boldsymbol{v}^i,u^{i},u^{i+1}) := (\boldsymbol{v}^i-\boldsymbol{\tilde{v}}^i)\cdot  \nabla\tilde{u}^{i+1} + \tilde{u}^{i+1} - u^i.
+	\label{opticalFlowBesser2}
+\end{equation}
+Both, formulation \eqref{opticalFlowKlassisch} and \eqref{opticalFlowBesser}, state only one equation per point for the two unknown components of $\boldsymbol{v}$ and, consequently, the problem is underdetermined. To overcome this, the optical flow formulation can be used as a data fidelity in a variational model
+\begin{align}
+	\argmin_{\boldsymbol{v} = \boldsymbol{v}^1,\ldots, \boldsymbol{v}^{n-1}} \sum_{i=1}^{n-1} \| \rho(\boldsymbol{v}^i,u^{i},u^{i+1}) \| + \alpha_1 \mathcal{R}_1(\boldsymbol{v}^i).
+	\label{variationalMotionModelGeneral}
+\end{align}
+The term $\mathcal{R}_1(\boldsymbol{v}^i)$ represents a regularization term and incorporates additional a-priori information about the solution into the problem. One could for example expect smooth or piecewise-constant velocity fields. The norm $\|\cdot\|$ for $\rho$ is left general, but is usually set to 1 or 2. Furthermore, the scalar quantity $\alpha_1$ balances data-fidelity and regularizer.
+
+\subsection{Denoising and Super-Resolution}
+The problem of motion estimation is directly conneted to the underlying image sequence and, hence, requires accurate input images $u^i$. Unfortunately, for many pratical applications, only noisy and undersampled variants $f^i$ of $u^i$ can be recorded. Similar to the optical flow problem, a variational formulation can be used to reconstruct $u^i$ from $f^i$. Let us assume that $f^i$ is a degraded and downsampled version of $u^i$ corrupted by noise. Then a variational formulation
+\begin{align}
+	\argmin_{u = u^1,\ldots, u^{n}} \sum_{i=1}^{n} \|A^iu^i-f^i \|_1 + \alpha_2 \mathcal{R}_2(u^i)
+	\label{variationalDenoisingModelGeneral}
+\end{align}
+can be used to reconstruct $u^i$ from $f^i$. Here, $A^i$ represents a linear operator modelling a blurring followed by a downsampling of the input argument: 
+\begin{align*}
+	A:\R^{N\times M}\rightarrow \R^{n\times m}, N\gg n, M\gg m.
+\end{align*}
+From a super-resolution perspective we want to recover $u^i$ on a finer grid than the input argument $f^i$. The regularizer $\mathcal{R}_2(u^i)$ adds additional a-priori information about the structure of $u^i$ into the model and and $\alpha_2$ is a weighting factor.\\
+
+\subsection{Joint}
+As already mentioned, motion estimation should be done on noise-free images, so generally one first denoises the image sequence using \eqref{variationalDenoisingModelGeneral} and afterwards estimates the underlying velocity fields using \eqref{variationalMotionModelGeneral}. In \cite{dirks} it has been shown that a joint model that simultaneously recovers an image sequence and estimates motion offers a significant advantage towards subsequently applying both methods. Here, the following model was proposed:
+\begin{align}
+	\argmin_{u,\boldsymbol{v}} \int_0^T \frac{1}{2}\left\|Au-f\right\|_2^2 + \alpha \left\|\nabla_x u\right\|_1 + \beta\left\|\nabla_x \boldsymbol{v}\right\|_1 + \gamma \left\|u_t+\nabla_x u\cdot\boldsymbol{v}\right\|_1 dt.
+	\label{oldJointModel}
+\end{align}
+For both, image sequence and velocity field, the respective total variation is used as a regularizer and the classical optical flow formulation from equation \ref{opticalFlowKlassisch} connects image sequence and velocity field. From the perspective of image reconstruction the optical flow constraint acts as an additional temporal regularizer along the calculated motion fields $\boldsymbol{v}$. Due to the used optical flow linearization, this model can be formulated in a continuous setting and does not rely on the semi-discrete sequence of images. The main drawback is the restriction to displacements of small magnitude. \\
+
+\subsubsection{Direct framework}
+For a super-resolution application, the restriction to flow fields of small magnitude is far from reality and, consequently, a model capable of handling large-scale displacements should be taken into account. For this sake, we propose the following joint motion estimation and video super-resolution model
+\begin{align}
+	\argmin_{\substack{u = u^1,\ldots, u^{n}\\\boldsymbol{v}=\boldsymbol{v}^1,\ldots\boldsymbol{v}^{n-1}}} \sum_{i=1}^{n} \|A^iu^i-f^i \|_1 + \alpha_2 \mathcal{R}_2(u^i) + \sum_{i=1}^{n-1} \| \rho(\boldsymbol{v}^i,u^{i},u^{i+1}) \|_1 + \alpha_1 \mathcal{R}_1(\boldsymbol{v}^i).
+	\label{jointLargeScaleModel}
+\end{align}
+The data fidelity term compares blurred and downsampled versions of u with the given input sequence and the spatial regularizer $\mathcal{R}_2$ adds structural information of the high-resolution image. From a super-resolution perspective most important in this model is the optical flow formulation because it connects each of the image sequence in a spatio-temporal manner: each of the images is directly or indirectly connected to all other images in the sequence. This formulation models the fact that all of the images represent the same scene shifted by the motion field $\boldsymbol{v}$.
+
+\paragraph{Grid-Alignment:} Unfortunately, the direct approach hides some difficulties from the numerical side, because each of the $u^i$ is defined on a different discrete grid $\Omega^i$. Subsequent images are basically connected by the brigthness-constancy assumption $u^{i+1}(x+\boldsymbol{v}^i)-u^i(x)$. To evaluate this term from the viewpoint of $u^i$, an interpolation of $u^{i+1}(x+\boldsymbol{v}^i)$ to the grid of $u^i$ is required. This causes some numerical errors according to the chosen interpolation scheme. The problem is even worse, since information from image $u^n$ undergoes several interpolations to reach image $u^1$ causing the approximation error to increase with each interpolation.\\
+A possible way to overcome this problem is a reformulation of the original problem and aligning the grids $\Omega^i$. Therefore, we could minimize the following problem:
+\begin{align}
+\argmin_{\substack{u = u^1,\ldots, u^{n}\\\boldsymbol{v}=\boldsymbol{v}^1,\ldots\boldsymbol{v}^{n}}} \sum_{i=1}^{n} \|BDu^i(x+\boldsymbol{v}^i)-f^i \|_1 + \alpha_2 \mathcal{R}_2(u^i) + \sum_{i=1}^{n-1} \| u^{i+1} - u^i \|_1 + \alpha_1 \mathcal{R}_1(\boldsymbol{v}^i).
+\label{jointLargeScaleModelAligned}
+\end{align}
+\textbf{Problem in $u$}:
+\begin{align}
+\argmin_{u = u^1,\ldots, u^{n}} \sum_{i=1}^{n} \|BDW^iu^i-f^i \|_1 + \alpha_2 \mathcal{R}_2(u^i) + \sum_{i=1}^{n-1} \| u^{i+1} - u^i \|_1
+\label{jointLargeScaleModelAlignedU},
+\end{align}
+where $W^i$ represents a warping operator.\\
+\textbf{Problem in $\boldsymbol{v}$}:
+\begin{align}
+\argmin_{\boldsymbol{v}=\boldsymbol{v}^1,\ldots\boldsymbol{v}^{n}} \sum_{i=1}^{n} \|BD (u^i(x+\boldsymbol{\tilde{v}^i}) + \nabla u^i(x+\boldsymbol{\tilde{v}^i})(\boldsymbol{v^i} - \boldsymbol{\tilde{v}^i})    )    -f^i \|_1 + \alpha_1 \mathcal{R}_1(\boldsymbol{v}^i).
+\label{jointLargeScaleModelAligned}
+\end{align}
+
+%
+%
+%\section{Realization}
+%\subsection{Primal-dual Algorithm}
+%
+%\subsection{General Strategy}
+%Let us choose the total variation regularization for the following section for image sequence and velocity field:
+%\begin{align*}
+%	\mathcal{R}_1(\boldsymbol{v}^i) = \| \nabla{v}^{i,1}\|_1 + \|\nabla{v}^{i,2}\|_1,\quad \mathcal{R}_2({u}^i) = \| \nabla{u}^{i}\|_1.
+%\end{align*}
+%The algorithm can be deduced in an analogue way for other regularization terms.\\
+%Going back to energy \eqref{jointLargeScaleModel} we propose, referring to \cite{dirks}, a minimization scheme which alternatingly fixes $u$ and $\boldsymbol{v}$ and minimizes the energy for the other variable. The corresponding problems for static $u^1_k,\ldots,u^n_k$ resp. $\boldsymbol{v}_k^1,\ldots\boldsymbol{v}_k^{n-1}$ read
+%\begin{align}
+%	u_{k+1} &= \argmin_{u = u^1,\ldots, u^{n}} \sum_{i=1}^{n} \|A^iu^i-f^i \|_1 + \alpha_2 \| \nabla{u}^{i}\|_1 + \sum_{i=1}^{n-1} \| \rho(\boldsymbol{v}^i_{k},u^{i},u^{i+1}) \|_1
+%	\label{subproblemU}\\
+%	\boldsymbol{v}_{k+1} &= \argmin_{\boldsymbol{v}=\boldsymbol{v}^1,\ldots\boldsymbol{v}^{n-1}} \sum_{i=1}^{n-1} \| \rho(\boldsymbol{v}^i,u^{i}_{k+1},u^{i+1}_{k+1}) \|_1 + \alpha_1 \| \nabla{v}^{i,1}\|_1 +\alpha_1 \|\nabla{v}^{i,2}\|_1 \label{subproblemV} 
+%\end{align}
+%Let us take a closer look at the minimization problem in equation \eqref{subproblemV}. First of all, in this formulation the evaluation of $u^{i+1}_k$ on intermediate grid points $x+\boldsymbol{\tilde{v}}$ is required. These evaluations can be generated by an interpolation scheme (linear, cubic etc.). Moreover, the linearization of the brightness constancy assumption requires a flow field $\boldsymbol{\tilde{v}}$ close to $\boldsymbol{v}$. This can be generated by an iterative warping technique, where the problem is solved for some initial $\boldsymbol{\tilde{v}}$ and the solution is used in the next step\todo{Ref warping}. This can be seen as looking for a fixed point\todo{Evtl erklaeren}.  This technique can be further improved by using a coarse-to-fine approach\todo{Ref coarse to fine}, solving the problem on subsampled versions of $u^i$ first and using the upscaled result as initial value for the next finer version.\\
+%The minimization problem in equation \eqref{subproblemU} now incorporates the term $\rho(\boldsymbol{v}^i_{k+1},u^{i},u^{i+1})$. Writing this out yields
+%\begin{align}
+%	(\boldsymbol{v}^i_{k+1}-\boldsymbol{\tilde{v}}^i_{k+1})\cdot  \nabla\tilde{u}^{i+1} + \tilde{u}^{i+1} - u^i
+%	\label{rhoSubU}
+%\end{align}
+%Let us recall that in the minimization process for $\boldsymbol{v}^i$, a warping scheme is applied, which creates subsequent versions of $\boldsymbol{v}$ and $\boldsymbol{\tilde{v}}$ which can be assumed to converge to static quantity. Consequently, the difference $\boldsymbol{v}^i_{k+1}-\boldsymbol{\tilde{v}}^i_{k+1}$ becomes arbitrarily small. So it can be neglegted in \eqref{rhoSubU} and the term simplifies to $\tilde{u}^{i+1} - u^i(x)$. We want to underline that for evaluating $\tilde{u}^{i+1}$ the same interpolation scheme as in the $\boldsymbol{v}$-problem has to be used to ensure numerical consistency. 
+%\subsection{Problem in $\boldsymbol{v}$}
+%The equivalent primal-dual formulation of problem \eqref{subproblemU} reads
+%\begin{align*}
+%	\argmin_{\substack{u = u^1,\ldots, u^{n}\\\boldsymbol{y} = \boldsymbol{y}^1,\ldots, \boldsymbol{y}^{n}}} \sum_{i=1}^{n} \langle u^i,{A^i}^*\boldsymbol{y}^{i,1} \rangle + \langle f^i,\boldsymbol{y}^{i,1} \rangle  \frac{1}{2}\|A^iu^i-f^i \|_2^2 + \alpha_2 \| \nabla{u}^{i}\|_1 + \sum_{i=1}^{n-1} \| \rho(\boldsymbol{v}^i_{k},u^{i},u^{i+1}) \|_1
+%\end{align*}
+%
+%
+%Write here algorithm for different regularizers 
+%\begin{align*}
+%	\text{Total Variation: } & \mathcal{R}_1(\boldsymbol{v}^i) = \| \nabla{v}^{i,1}\|_1 + \|\nabla{v}^{i,2}\|_1\\
+%	\text{Huber L$^1$: } & \mathcal{R}_1(\boldsymbol{v}^i) = \| \nabla{v}^{i,1}\|_{H_\epsilon} + \|\nabla{v}^{i,2}\|_{H_\epsilon}\\
+%	\text{Higher Order TV: } &\mathcal{R}_1(\boldsymbol{v}^i) = \| \nabla{v}^{i,1}-\boldsymbol{w}^{i,1}\|_1 + \mu\| \nabla\boldsymbol{w}^{i,1}\|_1 + \|\nabla{v}^{i,2}-\boldsymbol{w}^{i,2}\|_{1} + \mu \| \nabla\boldsymbol{w}^{i,2}\|_1
+%\end{align*}
+%
+%\subsection{Problem in $u$}
+%Write here algorithm for different regularizers 
+%\begin{align*}
+%	\text{L$^2$: } & \mathcal{R}_2({u}^i) = \frac{1}{2}\| \nabla{u}^{i}\|_2^2\\
+%	\text{Total Variation: } & \mathcal{R}_2({u}^i) = \| \nabla{u}^{i}\|_1\\
+%	\text{Higher Order TV: } &\mathcal{R}_2({u}^i) = \| \nabla{u}^{i}-\boldsymbol{w}^{i}\|_1 + \mu\| \nabla\boldsymbol{w}^{i}\|_1
+%\end{align*}
+%
+%\section{Results}
+
+%\bibliographystyle{plain}
+%\bibliography{references}
+	
+\end{document}
