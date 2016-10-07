@@ -1,5 +1,6 @@
 function v = solveSuperresolutionWithProst(obj,regParam,warpingTermParam,useConvexModel)
 
+%% connection to flexbox/obj/operators
 temp = obj.dimsSmall;
 ny=temp(1); nx=temp(2);
 temp = obj.dimsLarge;
@@ -7,10 +8,12 @@ Ny = temp(1);
 Nx = temp(2);
 nc =  obj.numFrames;
 
+% TODO: Do not read just one, but all of them. If we optimize for the
+% blurs, they are frame-dependent. 
 subSaplingoperator = obj.mainU.duals{1}.operator{1};
 f = obj.imageSequenceSmall;
 
-temp = obj.mainU.duals{5}.operator{1};
+temp = obj.mainU.duals{2*nc+1}.operator{1};
 warpingOperator = sparse([],[],[],Nx*Ny*(nc-1),Nx*Ny*nc,2*nnz(temp)*nc); 
 for i=1:nc-1
     warpingOperator((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*(i-1)+1):(Nx*Ny*i)) = obj.mainU.duals{2*nc+i}.operator{1};
@@ -18,6 +21,7 @@ for i=1:nc-1
 end
 warpingOperator = warpingTermParam*warpingOperator;
 
+%% actual minimization
 %primal variable
 u = prost.variable(Nx*Ny*nc);
 
@@ -36,8 +40,7 @@ prob.add_dual_pair(u, g2, prost.block.gradient2d(Nx,Ny,nc,false));
 
 prob.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, f(:), 0)); %ell^1
 prob.add_function(q, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, 0, 0)); %ell^1
-%prob.add_function(q, prost.function.sum_1d('square', 1, 0, 1, 0,
-%0));%ell^2-squared
+%prob.add_function(q, prost.function.sum_1d('square', 1, 0, 1, 0,0));%ell^2-squared
 prob.add_function(g2, prost.function.sum_1d('square', 1, 0, 10, 0, 0));%ell^2-squared
 if useConvexModel
     callbacks = 5;
@@ -67,6 +70,6 @@ opts = prost.options('max_iters', 500, ...
                      'verbose', true);
 
 tic;
-result = prost.solve(prob, backend, opts);
+prost.solve(prob, backend, opts);
 toc;
 v = reshape(u.val, [Ny,Nx,nc]);

@@ -3,9 +3,9 @@ clear all;close all;clc;
 addpath(genpath(cd));
 
 %% load data
-dataset = 'helsinkiSign10';
+dataset = 'mapVideo';
 dataPath = ['data',filesep,dataset,filesep];
-dataFile = [dataPath,'data.mat'];
+dataFile = [dataPath,'map.mat'];
 
 load(dataFile);
 
@@ -18,7 +18,7 @@ alpha = 0.01;
 beta = 0.001;
 numFrames = 5;
 
-mainSuper = jointSuperResolution(imageSequenceSmall(:,:,1:numFrames),alpha,beta,factor,'gtU',imageSequenceLarge);
+mainSuper = jointSuperResolution(imageSequenceSmall(:,:,1:numFrames),alpha,beta,factor);
 mainSuper.verbose = 1;
 %%
 mainSuper.init;

@@ -3,7 +3,7 @@ classdef jointSuperResolution < handle
     %   Detailed explanation goes here
     
     properties
-         numFrames;
+         numFrames
          dimsLarge
          dimsSmall
          factor
@@ -265,7 +265,7 @@ classdef jointSuperResolution < handle
         function run(obj)
             for i=1:obj.numMainIt
                 %% solve u problem
-                useFlexboxForUupdate = true;
+                useFlexboxForUupdate = false;
                 updateBlurKernels = true;
                 
                 disp('Solving problem for u');
