@@ -31,12 +31,12 @@ mainSuper.run;
 
 %%
 
-[errorU,errorV] = mainSuper.calculateErrors
+%[errorU,errorV] = mainSuper.calculateErrors
 
 %%
 close all;
-
-for i=1:numFrames
-    figure(1);imagesc(mainSuper.u(:,:,i));drawnow; axis image;pause
-end
+% 
+% for i=1:numFrames
+%     figure(1);imagesc(mainSuper.u(:,:,i));drawnow; axis image;pause
+% end
 

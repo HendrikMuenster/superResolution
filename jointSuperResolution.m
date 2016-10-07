@@ -110,9 +110,12 @@ classdef jointSuperResolution < handle
             obj.mainU.params.verbose = 1;
             obj.mainU.params.tryCPP = 1;
     
-            %initialize downsampling operator
+            %initialize downsampling operator - HACKED BY MICHAEL:
+            %ADDITIONAL BLUR BEFORE DOWNSAMPLING
             downsamplingOp = superpixelOperator(obj.dimsSmall,obj.factor);
-
+            temp = obj.dimsSmall*obj.factor;
+            downsamplingOp.matrix =downsamplingOp*createSparseMatrixFrom1dSeperableKernel([0.1 0.2 0.4 0.2 0.1], [0.1 0.2 0.4 0.2 0.1], temp(1),temp(2), 'Neumann');
+            
             %add for each frame data term and tv term
             for i=1:obj.numFrames
                 %add primal variable for each image
@@ -262,15 +265,42 @@ classdef jointSuperResolution < handle
         function run(obj)
             for i=1:obj.numMainIt
                 %% solve u problem
+                useFlexboxForUupdate = true;
+                updateBlurKernels = true;
+                
                 disp('Solving problem for u');
-                obj.solveU;
+                if useFlexboxForUupdate
+                    obj.solveU;
+                else
+                    regParam = 0.02 + (obj.numMainIt-i)*0.04;
+                    warpingTermParam = 0.1;
+                    useConvexModel = true;
+                    obj.u = solveSuperresolutionWithProst(obj,regParam,warpingTermParam,useConvexModel);
+                end
+                
 
                 %% solve problem v
                 disp('Solving problem for v');
                 obj.solveV;
 
                 %% update warping operators in flexBox
+                disp('Updating operators in flexBox');
                 obj.updateFlexBoxU;
+                
+                %% update blur kernels
+                disp('Lerning optimal blur kernels');
+                if updateBlurKernels
+                    nr = 1;
+                    kernelSize = 4;
+                    alph=0.65; %learning rate
+                    for k=1:size(obj.mainU.duals,2)
+                        if isa(obj.mainU.duals{k}, 'L1dataTermOperator')
+                            [A,~] = optimalBlurAndDownsamplingKernel(obj,kernelSize, nr);
+                            obj.mainU.duals{k}.operator{1} = alph*A+ (1-alph)*obj.mainU.duals{k}.operator{1};
+                            nr = nr+1;
+                        end
+                    end
+                end                
             end
             
             disp('Finished');
