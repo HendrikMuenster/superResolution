@@ -3,20 +3,23 @@ clear all;close all;clc;
 addpath(genpath(cd));
 
 %% load data
-dataset = 'munich';
+dataset = 'helsinkiSign6';
 dataPath = ['..',filesep,'superResolutionShared',filesep,'data',filesep,dataset,filesep];
 dataFile = [dataPath,'data.mat'];
 
 load(dataFile);
 
-
+if (~exist('imageSequenceLarge','var'))
+    imageSequenceLarge = 0;
+end
 
 %% init
 
-factor = 4;
+factor = 2;
 alpha = 0.01;
 beta = 0.05;
-numFrames = 5;
+numFrames = 4;
+
 
 mainSuper = jointSuperResolutionFB(imageSequenceSmall(:,:,1:numFrames),alpha,beta,factor,'gtU',imageSequenceLarge);
 mainSuper.verbose = 1;

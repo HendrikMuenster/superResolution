@@ -147,16 +147,19 @@ classdef jointSuperResolutionFB < handle
                 %find out of range warps in each of the operators and set the
                 %corresponding line in the other operator also to zero
                 marker = sum(abs(warp),2) == 0;
+                
+                idOp = speye(size(warp,1));
 
                 warp(marker > 0,:) = 0;
+                idOp(marker > 0,:) = 0;
 
                 if (mod(i,2)==1)
                     %add warping operator to flexbox
-                    obj.mainU.addTerm(L1operatorAniso(1,2,{identityOperator(size(warp,1)),-warp}),[i,i+1]);
+                    obj.mainU.addTerm(L1operatorAniso(1,2,{idOp,-warp}),[i,i+1]);
                     obj.numWarpTerm(i) = numel(obj.mainU.duals);
                 else
                     %add warping operator to flexbox
-                    obj.mainU.addTerm(L1operatorAniso(1,2,{-warp,identityOperator(size(warp,1))}),[i,i+1]);
+                    obj.mainU.addTerm(L1operatorAniso(1,2,{-warp,idOp}),[i,i+1]);
                     obj.numWarpTerm(i) = numel(obj.mainU.duals);              
                 end
             end
@@ -187,19 +190,28 @@ classdef jointSuperResolutionFB < handle
 
                 %create warping operator forward and backward
                 warp = warpingOperator(obj.dimsLarge,singleField);
+                idOp = speye(size(warp,1));
 
                 %find out of range warps in each of the operators and set the
                 %corresponding line in the other operator also to zero
                 marker = sum(abs(warp),2) == 0;
+                
 
                 warp(marker > 0,:) = 0;
+                idOp(marker > 0,:) = 0;
                 
                 if (mod(j,2)==1)
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{1} = idOp;
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{1} = idOp;
+                    
                     obj.mainU.duals{obj.numWarpTerm(j)}.operator{2} = -warp;
                     obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{2} = -warp';
                 else
                     obj.mainU.duals{obj.numWarpTerm(j)}.operator{1} = -warp;
                     obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{1} = -warp';
+                    
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{2} = idOp;
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{2} = idOp;
                 end
             end
         end
@@ -273,6 +285,9 @@ classdef jointSuperResolutionFB < handle
         end
         
         function run(obj)
+            useFlexboxForUupdate = false;
+            updateBlurKernels = true;
+            
             for i=1:obj.numMainIt
                 %% solve u problem
                 disp('Solving problem for u');
@@ -284,6 +299,21 @@ classdef jointSuperResolutionFB < handle
 
                 %% update warping operators in flexBox
                 obj.updateFlexBoxU;
+                
+                %% update blur kernels
+                disp('Lerning optimal blur kernels');
+                if updateBlurKernels
+                    nr = 1;
+                    kernelSize = 4;
+                    alph=0.65; %learning rate
+                    for k=1:size(obj.mainU.duals,2)
+                        if isa(obj.mainU.duals{k}, 'L1dataTermOperator')
+                            [A,~] = optimalBlurAndDownsamplingKernel(obj,kernelSize, nr);
+                            obj.mainU.duals{k}.operator{1} = alph*A+ (1-alph)*obj.mainU.duals{k}.operator{1};
+                            nr = nr+1;
+                        end
+                    end
+                end           
             end
             
             disp('Finished');
