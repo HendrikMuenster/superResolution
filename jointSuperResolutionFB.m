@@ -155,11 +155,11 @@ classdef jointSuperResolutionFB < handle
 
                 if (mod(i,2)==1)
                     %add warping operator to flexbox
-                    obj.mainU.addTerm(L1operatorAniso(1,2,{idOp,-warp}),[i,i+1]);
+                    obj.mainU.addTerm(L1operatorAniso(1,2,{-idOp,warp}),[i,i+1]);
                     obj.numWarpTerm(i) = numel(obj.mainU.duals);
                 else
                     %add warping operator to flexbox
-                    obj.mainU.addTerm(L1operatorAniso(1,2,{-warp,idOp}),[i,i+1]);
+                    obj.mainU.addTerm(L1operatorAniso(1,2,{warp,-idOp}),[i,i+1]);
                     obj.numWarpTerm(i) = numel(obj.mainU.duals);              
                 end
             end
@@ -201,17 +201,17 @@ classdef jointSuperResolutionFB < handle
                 idOp(marker > 0,:) = 0;
                 
                 if (mod(j,2)==1)
-                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{1} = idOp;
-                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{1} = idOp;
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{1} = -idOp;
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{1} = -idOp;
                     
-                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{2} = -warp;
-                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{2} = -warp';
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{2} = warp;
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{2} = warp';
                 else
-                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{1} = -warp;
-                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{1} = -warp';
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{1} = warp;
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{1} = warp';
                     
-                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{2} = idOp;
-                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{2} = idOp;
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operator{2} = -idOp;
+                    obj.mainU.duals{obj.numWarpTerm(j)}.operatorT{2} = -idOp;
                 end
             end
         end
