@@ -619,7 +619,7 @@ classdef jointSuperResolutionJonas < handle
             DK = [];
             for i = 1:obj.numFrames % this needs to be done smarter at some point
                 %tmpOp = writeKernelToSparseDownsamplingMatrix(obj.k(:,:,i),1,obj.dimsLarge(1),obj.dimsLarge(2)); % there is a bug in here somewhere
-                tmpOp = RepConvMtx(obj.k(:,:,i),obj.dimsLarge); % but my borders are also wrong :<
+                tmpOp = RepConvMtx(obj.k(:,:,i),obj.dimsLarge); %
                 tmpOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix*tmpOp;
                 DK    = blkdiag(DK,tmpOp);
             end
