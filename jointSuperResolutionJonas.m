@@ -9,6 +9,7 @@ classdef jointSuperResolutionJonas < handle
         
         % Input Data
         imageSequenceSmall
+        imageSequenceYCbCr
         datasetName
         
         % Problem Structure
@@ -53,6 +54,7 @@ classdef jointSuperResolutionJonas < handle
         
         % Book-keeping
         currentIt          % notifies solvers of current iteration
+        colorflag          % Is set to 1 for color videos to enable YCbCr treatment
     end
     
     methods
@@ -63,7 +65,27 @@ classdef jointSuperResolutionJonas < handle
             %%% Property standards:
             
             % Input Data
-            obj.imageSequenceSmall = imageSequenceSmall;
+            if ndims(imageSequenceSmall) == 3
+                obj.imageSequenceSmall = imageSequenceSmall;
+                obj.colorflag = 0;
+                obj.imageSequenceYCbCr = 0;
+                obj.numFrames = size(imageSequenceSmall,3);
+                
+            elseif ndims(imageSequenceSmall) == 4
+                obj.colorflag = 1;
+                obj.numFrames = size(imageSequenceSmall,4);
+                
+                ycbcrMap = zeros(size(imageSequenceSmall));
+                for i = 1:obj.numFrames
+                    ycbcrMap(:,:,:,i) = rgb2ycbcr(imageSequenceSmall(:,:,:,i));
+                end
+                obj.imageSequenceYCbCr = ycbcrMap;
+                obj.imageSequenceSmall = squeeze(ycbcrMap(:,:,1,:));
+                
+            else
+                error('Load an actual video sequence');    
+            end
+            
             if (exist('datasetName','var'))
                 obj.datasetName = datasetName;
             else
@@ -71,7 +93,7 @@ classdef jointSuperResolutionJonas < handle
             end
             
             % Problem Structure
-            obj.numFrames = size(imageSequenceSmall,3);
+            
             obj.factor    = 4;
             obj.dimsSmall = size(imageSequenceSmall);
             obj.dimsSmall = obj.dimsSmall(1:2);
@@ -162,11 +184,11 @@ classdef jointSuperResolutionJonas < handle
             downsamplingOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
             % and incorporate blur:
             downsamplingOp =downsamplingOp*createSparseMatrixFrom1dSeperableKernel( ...
-                                  obj.kOpts.initKx,obj.kOpts.initKy, obj.dimsLarge(1),obj.dimsLarge(2), 'Neumann');                   
+                obj.kOpts.initKx,obj.kOpts.initKy, obj.dimsLarge(1),obj.dimsLarge(2), 'Neumann');
             % initialize block format
             downsamplingOp = kron(speye(obj.numFrames),downsamplingOp);
-           
-           
+            
+            
             % short some notation
             temp = obj.dimsSmall;
             ny=temp(1); nx=temp(2);
@@ -188,7 +210,7 @@ classdef jointSuperResolutionJonas < handle
                 % find out of range warps in each of the operators and set the corresponding line in the other operator also to zero
                 marker = sum(abs(warp),2) == 0;
                 warp(marker > 0,:) = 0;
-                idOp(marker > 0,:) = 0; 
+                idOp(marker > 0,:) = 0;
                 
                 %Build the sparse total warping operator
                 if i == 1
@@ -201,7 +223,7 @@ classdef jointSuperResolutionJonas < handle
                     warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*i+1):(Nx*Ny*(1+i))) = warp;
                 else
                     %add warping operator backward
-                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*(i-1)+1):(Nx*Ny*i)) = warp ; 
+                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*(i-1)+1):(Nx*Ny*i)) = warp ;
                     warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*i+1):(Nx*Ny*(1+i))) = -idOp;
                 end
             end
@@ -293,15 +315,15 @@ classdef jointSuperResolutionJonas < handle
             
             % update solver backend if a nonconvex regularizer is chosen
             if obj.regUq < 1
-                    gamma_factor = 1/sqrt(prod(obj.dimsLarge))*10; % experimental :>
-                    obj.opts.backend = prost.backend.pdhg('stepsize', 'alg2', ...
-                             'residual_iter', -1, ...
-                             'alg2_gamma', gamma_factor);
-                    obj.opts.opts = prost.options('max_iters', 1500, ...         
-                                        'num_cback_calls', 0, ...
-                                        'verbose', true); 
-                    %( initialization is actually the bigger problem than a
-                    %  few thousand extra iterations )
+                gamma_factor = 1/sqrt(prod(obj.dimsLarge))*10; % experimental :>
+                obj.opts.backend = prost.backend.pdhg('stepsize', 'alg2', ...
+                    'residual_iter', -1, ...
+                    'alg2_gamma', gamma_factor);
+                obj.opts.opts = prost.options('max_iters', 1500, ...
+                    'num_cback_calls', 0, ...
+                    'verbose', true);
+                %( initialization is actually the bigger problem than a
+                %  few thousand extra iterations )
             end
             
         end
@@ -358,27 +380,27 @@ classdef jointSuperResolutionJonas < handle
             %  only to initiate prost block and validate sizes
             
             % create downsampling operator in block format
-            downsamplingOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;   
+            downsamplingOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
             downsamplingOp = kron(speye(obj.numFrames),downsamplingOp);
-            % create DU operator, s.t. DUk -> f <- DKu 
+            % create DU operator, s.t. DUk -> f <- DKu
             downsampleImageOp = downsamplingOp*imageStackOp(obj.u,obj.kernelsize); % this is kind of a waste of memory ;)
-
+            
             % short some notation
             temp = obj.dimsSmall;
             ny=temp(1); nx=temp(2);
             nc =  obj.numFrames;
-            kx = obj.kernelsize; ky = obj.kernelsize; 
+            kx = obj.kernelsize; ky = obj.kernelsize;
             
             %%% Initialize prost variables
-            % Primal variable - vector of vectorized kernels of each frame 
-            k_vec = prost.variable(kx*ky*nc); 
+            % Primal variable - vector of vectorized kernels of each frame
+            k_vec = prost.variable(kx*ky*nc);
             % Dual variables
             p     = prost.variable(nx*ny*nc);   % dual variable for l1 data
             g1    = prost.variable(kx*ky*nc);   % dual variable for l2 norm reg
             g2    = prost.variable(kx*ky*nc*2); % dual variable for Tikh reg
             
             % Connect variables
-            obj.prostK = prost.min_max_problem( {k_vec}, {p,g1,g2} ); 
+            obj.prostK = prost.min_max_problem( {k_vec}, {p,g1,g2} );
             obj.prostK.add_dual_pair(k_vec,p,prost.block.sparse(downsampleImageOp));
             obj.prostK.add_dual_pair(k_vec,g1,prost.block.identity(1));
             obj.prostK.add_dual_pair(k_vec,g2,prost.block.gradient2d(kx,ky,nc,false));
@@ -479,12 +501,12 @@ classdef jointSuperResolutionJonas < handle
             toc
             obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge(1), obj.dimsLarge(2), obj.numFrames]);
             
-
+            
             %%% sanity check:
             %obj.u = call_prost_wrapper(obj);
-
-
-
+            
+            
+            
             % show solution
             for j=1:obj.numFrames
                 if (obj.verbose > 0)
@@ -536,18 +558,27 @@ classdef jointSuperResolutionJonas < handle
             end
             
             % update warping operator in prost
-             obj.prostU.data.linop{1,2}{1,4}{1} = warpingOp;
-
+            obj.prostU.data.linop{1,2}{1,4}{1} = warpingOp;
+            
             
             % update alpha for next main iteration
             if obj.currentIt ~= obj.numMainIt
                 if obj.regUq == 1
-                    obj.prostU.data.prox_fstar{1,3}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
+                    if strcmp(obj.regU,'TV')
+                        obj.prostU.data.prox_fstar{1,3}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
+                    elseif strcmp(obj.regU,'TGV')
+                        obj.prostU.data.prox_fstar{1,3}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
+                        obj.prostU.data.prox_fstar{1,4}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
+                    end
                 else
-                    obj.prostU.data.prox_fstar{1,2}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
+                    if strcmp(obj.regU,'TV')
+                        obj.prostU.data.prox_fstar{1,3}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
+                    elseif strcmp(obj.regU,'TGV')
+                        obj.prostU.data.prox_fstar{1,3}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
+                        obj.prostU.data.prox_fstar{1,4}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
+                    end
                 end
             end
-            % the question is however where the second TGV parameter can be found ...
             
         end
         
@@ -562,7 +593,7 @@ classdef jointSuperResolutionJonas < handle
                 
                 motionEstimator = motionEstimatorClass(uTmp,1e-6,obj.beta(obj.currentIt),'doGradientConstancy',1);
                 motionEstimator.regularizerTerm = obj.regV;
-                motionEstimator.verbose = 0;%obj.verbose; 
+                motionEstimator.verbose = 0;%obj.verbose;
                 motionEstimator.init;
                 motionEstimator.runPyramid;
                 
@@ -589,7 +620,7 @@ classdef jointSuperResolutionJonas < handle
             % Update DU Operator
             downsamplingOp = kron(speye(obj.numFrames),superpixelOperator(obj.dimsSmall,obj.factor).matrix);
             downsampleImageOp = downsamplingOp*imageStackOp(obj.u,obj.kernelsize); % this is kind of a waste of memory ;)
-
+            
             % update DU operator in prost
             obj.prostK.data.linop{1,1}{1,4}{1} = downsampleImageOp;
             
@@ -598,22 +629,22 @@ classdef jointSuperResolutionJonas < handle
             prost.solve(obj.prostK,obj.kOpts.backend,obj.kOpts.opts);
             toc
             obj.k  = reshape(obj.prostK.primal_vars{1,1}.val,obj.kernelsize,obj.kernelsize,obj.numFrames);
-            if obj.verbose 
+            if obj.verbose
                 % draw subplots of blur kernels results
                 msize = ceil(sqrt(obj.numFrames+1));
                 maxis = max(obj.k(:));
                 figure(300),
                 for i = 1:obj.numFrames
-                        subplot(msize,msize,i);
-                        imagesc(obj.k(:,:,i)); caxis([0,maxis]);
-                        title(['Blur in frame ',num2str(i)])
+                    subplot(msize,msize,i);
+                    imagesc(obj.k(:,:,i)); caxis([0,maxis]);
+                    title(['Blur in frame ',num2str(i)])
                 end
                 subplot(msize,msize,obj.numFrames+1)
                 imagesc(obj.kOpts.initKx'*obj.kOpts.initKy); caxis([0,maxis]);
                 title('Initial blur');
                 drawnow;
             end
-
+            
             
             % Update operator in prostU object
             DK = [];
@@ -626,37 +657,82 @@ classdef jointSuperResolutionJonas < handle
             obj.prostU.data.linop{1,1}{1,4}{1} = DK;
         end
         
+        %% Recompute RGB image
+        
+        function recomputeRGB(obj)
+            imageSequenceUp = zeros(obj.dimsLarge(1),obj.dimsLarge(2),3,obj.numFrames);
+            for i = 1:obj.numFrames
+                imageSequenceUp(:,:,1,i) = obj.u(:,:,i);                                               % actually computed Y
+                imageSequenceUp(:,:,2,i) = imresize(obj.imageSequenceYCbCr(:,:,2,i),obj.factor); % bicubic Cb
+                imageSequenceUp(:,:,3,i) = imresize(obj.imageSequenceYCbCr(:,:,3,i),obj.factor); % bicubic Cr
+                imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
+            end
+            obj.u = imageSequenceUp;
+            
+        end
+        
+        
         %% Calculate Error margins if ground truths are given
         function [errorU,errorV] = calculateErrors(obj)
             errorU = -1;
             errorV = -1;
             
-            if size(obj.gtU) ~= size(obj.u)
-                warning('Wrong ground truth data given, error estimation terminated')
-                return
-            end
-            
-            
             %image error
             if (~isscalar(obj.gtU))
                 errorU = 0;
-                for j=1:obj.numFrames
-                    %squared error
-                    err = (obj.u(:,:,j) - obj.gtU(:,:,j)).^2;
+
+                if obj.colorflag
+                    for j=1:obj.numFrames
+                        %squared error
+                        err = (obj.u(:,:,:,j) - obj.gtU(:,:,:,j)).^2;
+                        
+                        %cut out inner window
+                        err = err(20:end-20,20:end-20,:);
+                        
+                        %figure(124);imagesc(err);colorbar;
+                        %figure(123);imagesc(err);colorbar;
+                        %sum up
+                        err = sum(sum(sqrt(err(:)))) / numel(err);
+                        errorU = errorU + err;
+                    end
+                    errorU = errorU / obj.numFrames; %average;
                     
-                    %cut out inner window
-                    err = err(20:end-20,20:end-20);
+                    % 4D PSNR
+                    psnrErr = psnr(obj.u(20:end-20,20:end-20,:,:),obj.gtU(20:end-20,20:end-20,:,1:obj.numFrames));
                     
-                    %figure(124);imagesc(err);colorbar;
-                    %figure(123);imagesc(err);colorbar;
-                    %sum up
-                    err = sum(sqrt(err(:))) / numel(err);
-                    errorU = errorU + err;
+                    for j = 1:3 % SSIM computation takes a while ...
+                        ssimErr(j) = ssim(squeeze(obj.u(20:end-20,20:end-20,j,:)),squeeze(obj.gtU(20:end-20,20:end-20,j,1:obj.numFrames))); %#ok<AGROW>
+                    end
+                    ssimErr = mean(ssimErr); % mean over all color channels
+                else
+                    
+                    if size(obj.gtU) ~= size(obj.u)
+                        warning('Wrongly sized ground truth data given, error estimation terminated')
+                        return
+                    end
+                    
+                    for j=1:obj.numFrames
+                        %squared error
+                        err = (obj.u(:,:,j) - obj.gtU(:,:,j)).^2;
+                        
+                        %cut out inner window
+                        err = err(20:end-20,20:end-20);
+                        
+                        %figure(124);imagesc(err);colorbar;
+                        %figure(123);imagesc(err);colorbar;
+                        %sum up
+                        err = sum(sqrt(err(:))) / numel(err);
+                        errorU = errorU + err;
+                    end
+                    errorU = errorU / obj.numFrames; %average;
+                    
+                    % 3D PSNR
+                    psnrErr = psnr(obj.u(20:end-20,20:end-20,:),obj.gtU(20:end-20,20:end-20,1:obj.numFrames));
+                    
+                    % SSIM computation takes a while ...
+                    ssimErr = ssim(obj.u(20:end-20,20:end-20,:),obj.gtU(20:end-20,20:end-20,1:obj.numFrames));
                 end
-                errorU = errorU / obj.numFrames; %average;
                 
-                psnrErr = psnr(obj.u(20:end-20,20:end-20,:),obj.gtU(20:end-20,20:end-20,1:obj.numFrames));
-                ssimErr = ssim(obj.u(20:end-20,20:end-20,:),obj.gtU(20:end-20,20:end-20,1:obj.numFrames));
                 
                 disp(['PSNR (central patch): ',num2str(psnrErr),' dB']);
                 disp(['SSIM (central patch): ',num2str(ssimErr),' ']);
@@ -711,15 +787,16 @@ classdef jointSuperResolutionJonas < handle
                 %% update warping operators and parameters for u problem
                 obj.updateProstU;
                 
-                %% update blur kernels       
+                %% update blur kernels
                 disp('Solving blur problem');
                 obj.solveBlur;
-
+                
                 
                 disp(['-------Main Iteration ',num2str(i), ' finished !'])
             end
             
-            
+            %% Recompute RGB image in color mode
+            obj.recomputeRGB
             
             if obj.profiler
                 profile off
