@@ -38,6 +38,8 @@ classdef jointSuperResolutionJonas < handle
         alpha              % weights for regularizer of u
         beta               % weights for regularizer of v
         gamma              % coupling intensity (= WarpingOp factor)
+        eta                % warp parameter
+        sigma              % patch size
         kOpts              % k regularizer and backend options
         kernelsize         % targeted kernel size for each k_i
         verbose
@@ -83,7 +85,7 @@ classdef jointSuperResolutionJonas < handle
                 obj.imageSequenceSmall = squeeze(ycbcrMap(:,:,1,:));
                 
             else
-                error('Load an actual video sequence');    
+                error('Load an actual video sequence');
             end
             
             if (exist('datasetName','var'))
@@ -130,8 +132,12 @@ classdef jointSuperResolutionJonas < handle
                 'tau0', 100, ...
                 'sigma0', 0.01, ...
                 'stepsize', 'boyd');                % prost backend options
-            obj.opts.opts = prost.options('max_iters', 500, ...
+            obj.opts.opts = prost.options('max_iters', 2500, ...
                 'num_cback_calls', 5, ...
+                ...'tol_rel_primal', 1e-16, ...
+                ...'tol_rel_dual', 1e-16, ...
+                ...'tol_abs_dual', 1e-7, ...
+                ...'tol_abs_primal', 1e-7, ...
                 'verbose', true);                   % prost structure options
             
             obj.regU = 'TV';                        % u regularizer options
@@ -142,12 +148,14 @@ classdef jointSuperResolutionJonas < handle
             obj.alpha = 0.01*ones(obj.numMainIt,1); % weights for regularizer of u
             obj.beta = 0.1*ones(obj.numMainIt,1);   % weights for regularizer of v
             obj.gamma = ones(obj.numMainIt,1);      % coupling intensity (= WarpingOp factor)
+            obj.eta = ones(obj.numMainIt,1);        % warp parameter
+            obj.sigma = 1;
             
             obj.kOpts.backend = prost.backend.pdhg(...
                 'tau0', 100, ...
                 'sigma0', 0.01, ...
                 'stepsize', 'boyd');                % prost backend options
-            obj.kOpts.opts = prost.options('max_iters', 500, ...
+            obj.kOpts.opts = prost.options('max_iters', 2500, ...
                 'num_cback_calls', 5, ...
                 'verbose', true);                   % prost structure options
             obj.kernelsize = 5;                     % standard kernel size
@@ -182,6 +190,7 @@ classdef jointSuperResolutionJonas < handle
             
             % create downsampling operator
             downsamplingOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
+            
             % and incorporate blur:
             downsamplingOp =downsamplingOp*createSparseMatrixFrom1dSeperableKernel( ...
                 obj.kOpts.initKx,obj.kOpts.initKy, obj.dimsLarge(1),obj.dimsLarge(2), 'Neumann');
@@ -197,7 +206,7 @@ classdef jointSuperResolutionJonas < handle
             Nx = temp(2);
             nc =  obj.numFrames;
             
-            
+            spX = []; spY = []; spAlloc = []; % nc-1 dynamic reallocations are needed 
             % create warping operator from given v
             for i = 1:nc-1
                 % extract flow field
@@ -210,25 +219,46 @@ classdef jointSuperResolutionJonas < handle
                 % find out of range warps in each of the operators and set the corresponding line in the other operator also to zero
                 marker = sum(abs(warp),2) == 0;
                 warp(marker > 0,:) = 0;
-                idOp(marker > 0,:) = 0;
-                
-                %Build the sparse total warping operator
-                if i == 1
-                    warpingOp = sparse([],[],[],Nx*Ny*(nc-1),Nx*Ny*nc,2*nnz(warp)*nc); % TODO: check preallocation accuracy
-                end
-                
-                if (mod(i,2)==1)
-                    %add warping operator forward
-                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*(i-1)+1):(Nx*Ny*i)) = -idOp; %#ok<*SPRIX> %;)
-                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*i+1):(Nx*Ny*(1+i))) = warp;
+                idOp(marker > 0,:) = 0; %#ok<SPRIX> % this is still the most painless way
+
+                 if (mod(i,2)==1)
+                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))']; %#ok<*AGROW>
+                    spY = [spY;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
+                    spAlloc = [spAlloc;-full(diag(idOp))];
+                    
+                    [sp_x,sp_y,walloc] = find(warp);
+                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
+                    spY = [spY;(Nx*Ny*i+1)+sp_y-1];
+                    spAlloc = [spAlloc;walloc];    
                 else
-                    %add warping operator backward
-                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*(i-1)+1):(Nx*Ny*i)) = warp ;
-                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*i+1):(Nx*Ny*(1+i))) = -idOp;
+                    [sp_x,sp_y,walloc] = find(warp);
+                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
+                    spY = [spY;(Nx*Ny*(i-1)+1)+sp_y-1];
+                    spAlloc = [spAlloc;walloc];
+                    
+                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
+                    spY = [spY;((Nx*Ny*i+1):(Nx*Ny*(i+1)))'];
+                    spAlloc = [spAlloc;-full(diag(idOp))];
                 end
             end
-            % use weighting parameter gamma
-            warpingOp = obj.gamma(obj.currentIt)*warpingOp;
+            warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*(nc-1),Nx*Ny*nc);
+            
+            % preweight, based on warping accuracy
+            u_up = zeros(Ny,Nx,nc);
+            for i = 1:nc
+                u_up(:,:,i) = imresize(obj.imageSequenceSmall(:,:,i),obj.factor);
+            end
+            warpAcc = exp(-abs(warpingOp*u_up(:))/obj.gamma(1));
+            if obj.sigma ~= 0
+                warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
+            end
+            
+            D = spdiags(warpAcc(:),0,Nx*Ny*(nc-1),Nx*Ny*(nc-1));
+            
+            warpingOp = obj.eta(1)*D*warpingOp;
+            
+            % use weighting parameter gamma - folded into accuracy weight
+            %warpingOp = obj.gamma(obj.currentIt)*warpingOp;
             
             
             %%%% initialize prost variables and operators
@@ -239,6 +269,11 @@ classdef jointSuperResolutionJonas < handle
             % Primal - Varying regularizer primals:
             if strcmp(obj.regU,'TGV')
                 w_vec = prost.variable(Nx*Ny*nc*2); % additional primal variable for TGV reformulation
+            elseif strcmp(obj.regU,'infTGV')
+                w_vec = prost.variable(Nx*Ny*nc);
+                v_vec = prost.variable(Nx*Ny*nc*2);
+            elseif strcmp(obj.regU,'infTV')
+                w_vec = prost.variable(Nx*Ny*nc);     
             end
             
             % Dual - Core Variables
@@ -252,6 +287,11 @@ classdef jointSuperResolutionJonas < handle
             elseif strcmp(obj.regU,'TGV')
                 g1 = prost.variable(2*Nx*Ny*nc);     % dual variable for TGV regularization (to u)
                 g2 = prost.variable(4*Nx*Ny*nc);     % dual variable for TGV regularization (to w)
+            elseif strcmp(obj.regU,'infTGV')
+                g2 = prost.variable(Nx*Ny*nc*2);
+                g3 = prost.variable(Nx*Ny*nc*4);
+            elseif strcmp(obj.regU,'infTV')
+                g1 = prost.variable(2*Nx*Ny*nc);
             else
                 error('invalid regularization type')
             end
@@ -267,6 +307,7 @@ classdef jointSuperResolutionJonas < handle
                 
                 % add functions
                 % Core
+                %obj.prostU.add_function(u_vec,prost.function.sum_ind_simplex(Nx*Ny,true));
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, 0, 0)); %l^1
                 % Regularizer
@@ -283,6 +324,7 @@ classdef jointSuperResolutionJonas < handle
             elseif strcmp(obj.regU,'TGV')
                 obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {q,p,g1,g2} );
                 % Core
+                
                 obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
                 obj.prostU.add_dual_pair(u_vec, q, prost.block.sparse(warpingOp));
                 % Regularizer
@@ -292,6 +334,7 @@ classdef jointSuperResolutionJonas < handle
                 
                 % Add functions
                 % Core
+                %obj.prostU.add_function(u_vec,prost.function.sum_ind_simplex(Nx*Ny,true));
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, 0, 0)); %l^1
                 % Regularizer
@@ -310,6 +353,65 @@ classdef jointSuperResolutionJonas < handle
                         4, false, 'lq', ...
                         1,0,obj.alpha(obj.currentIt)*obj.regTGV,0,0, obj.regUq))); % l^\regUq
                 end
+                
+            elseif strcmp(obj.regU,'infTGV')
+                obj.prostU = prost.min_max_problem( {u_vec,v_vec,w_vec}, {q,p,g2,g3} );
+                % Core
+                
+                obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                obj.prostU.add_dual_pair(u_vec, q, prost.block.sparse(warpingOp));
+                % Regularizer
+                obj.prostU.add_dual_pair(w_vec, q, prost.block.sparse(-warpingOp));
+                obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse(spmat_gradient2d(Nx, Ny,nc)));
+                obj.prostU.add_dual_pair(v_vec, g2, prost.block.identity(-1));
+                obj.prostU.add_dual_pair(v_vec, g3, prost.block.sparse(spmat_gradient2d(Nx, Ny, 2*nc)));
+                % Add functions
+                % Core
+                %obj.prostU.add_function(u_vec,prost.function.sum_ind_simplex(Nx*Ny,true));
+                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, 0, 0)); %l^1
+                % Regularizer
+                if obj.regUq == 1
+                    obj.prostU.add_function(g2, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha(obj.currentIt), 1, 1, 0, 0)); %l^{2,1}
+                    obj.prostU.add_function(g3, prost.function.sum_norm2(4, false, 'ind_leq0', 1/(obj.alpha(obj.currentIt)*obj.regTGV), 1, 1, 0, 0)); %l^{2,1}
+                else
+                    obj.prostU.add_function(g2, ...
+                        prost.function.conjugate(...
+                        prost.function.sum_norm2(...
+                        2, false, 'lq', ...
+                        1,0,obj.alpha(obj.currentIt),0,0, obj.regUq))); % l^\regUq
+                    obj.prostU.add_function(g3, ...
+                        prost.function.conjugate(...
+                        prost.function.sum_norm2(...
+                        4, false, 'lq', ...
+                        1,0,obj.alpha(obj.currentIt)*obj.regTGV,0,0, obj.regUq))); % l^\regUq
+                end
+            elseif strcmp(obj.regU,'infTV')
+                obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {q,p,g1} );
+                
+                % Core
+                obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                obj.prostU.add_dual_pair(u_vec, q, prost.block.sparse(warpingOp));
+                % Regularizer
+                obj.prostU.add_dual_pair(w_vec, q, prost.block.sparse(-warpingOp));
+                obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(spmat_gradient2d(Nx, Ny,nc)));
+                
+                % add functions
+                % Core
+                %obj.prostU.add_function(u_vec,prost.function.sum_ind_simplex(Nx*Ny,true));
+                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, 0, 0)); %l^1
+                % Regularizer
+                if obj.regUq == 1
+                    obj.prostU.add_function(g1, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha(obj.currentIt), 1, 1, 0, 0)); %l^{2,1}
+                else
+                    obj.prostU.add_function(g1, ...
+                        prost.function.conjugate(...
+                        prost.function.sum_norm2(...
+                        2, false, 'lq', ...
+                        1,0,obj.alpha(obj.currentIt),0,0, obj.regUq))); % l^\regUq
+                end
+                
             end
             
             
@@ -354,6 +456,7 @@ classdef jointSuperResolutionJonas < handle
                 
                 if (obj.verbose > 0)
                     figure(200+j);imagesc(flowToColorV2(cat(3,obj.v(:,:,j,1),obj.v(:,:,j,2))));axis image;
+                    
                 end
                 %todo: add comparison with ground-truth flow
                 
@@ -363,17 +466,18 @@ classdef jointSuperResolutionJonas < handle
                 end
                 
             end
+            drawnow;
         end
         
         %% create real motion estimator object in motionEstimatorClass
         %(this seems actually unnecessary due to reinit in solveV ?)
-        function init_v(obj)
-            
-            obj.mainV = motionEstimatorClass(obj.u,1e-6,obj.beta,'doGradientConstancy',1);
-            obj.mainV.verbose = 1;
-            obj.mainV.init;
-            %obj.vExists = 0;
-        end
+        %function init_v(obj)
+        %
+        %    %obj.mainV = motionEstimatorClass(obj.u,1e-6,obj.beta,'doGradientConstancy',1);
+        %obj.mainV.verbose = 1;
+        %obj.mainV.init;
+        %obj.vExists = 0;
+        %end
         
         %% create blur estimator object in prost
         function init_k(obj)
@@ -384,7 +488,6 @@ classdef jointSuperResolutionJonas < handle
             downsamplingOp = kron(speye(obj.numFrames),downsamplingOp);
             % create DU operator, s.t. DUk -> f <- DKu
             downsampleImageOp = downsamplingOp*imageStackOp(obj.u,obj.kernelsize); % this is kind of a waste of memory ;)
-            
             % short some notation
             temp = obj.dimsSmall;
             ny=temp(1); nx=temp(2);
@@ -438,7 +541,7 @@ classdef jointSuperResolutionJonas < handle
                 if obj.numMainIt < length(obj.beta)
                     obj.numMainIt = length(obj.beta);
                 else
-                    obj.alpha(end+1:obj.numMainIt) = obj.beta(end);
+                    obj.beta(end+1:obj.numMainIt) = obj.beta(end);
                 end
             end
             if length(obj.gamma) ~= obj.numMainIt
@@ -447,6 +550,14 @@ classdef jointSuperResolutionJonas < handle
                     obj.numMainIt = length(obj.gamma);
                 else
                     obj.gamma(end+1:obj.numMainIt) = obj.gamma(end);
+                end
+            end
+            if length(obj.eta) ~= obj.numMainIt
+                warning('warp parameter wrong, iteration number extended or eta padded')
+                if obj.numMainIt < length(obj.eta)
+                    obj.numMainIt = length(obj.eta);
+                else
+                    obj.eta(end+1:obj.numMainIt) = obj.eta(end);
                 end
             end
             if length(obj.kOpts.delta) ~= obj.numMainIt
@@ -472,9 +583,14 @@ classdef jointSuperResolutionJonas < handle
                 profile on
             end
             
+            % Normalize input kernels
+            obj.kOpts.initKx =  obj.kOpts.initKx/sum(obj.kOpts.initKx);
+            obj.kOpts.initKy =  obj.kOpts.initKy/sum(obj.kOpts.initKy);
+            
+            
             % Call actual initialization methods
             obj.init_v0;
-            obj.init_v;
+            %obj.init_v;
             obj.init_u;
             obj.init_k;
             
@@ -526,7 +642,7 @@ classdef jointSuperResolutionJonas < handle
             Nx = temp(2);
             nc =  obj.numFrames;
             
-            
+            spX = []; spY = []; spAlloc = [];
             % create warping operator from given v
             for i = 1:nc-1
                 % extract flow field
@@ -539,26 +655,39 @@ classdef jointSuperResolutionJonas < handle
                 % find out of range warps in each of the operators and set the corresponding line in the other operator also to zero
                 marker = sum(abs(warp),2) == 0;
                 warp(marker > 0,:) = 0;
-                idOp(marker > 0,:) = 0;
+                idOp(marker > 0,:) = 0; %#ok<SPRIX>
                 
-                %Build the sparse total warping operator
-                if i == 1
-                    warpingOp = sparse([],[],[],Nx*Ny*(nc-1),Nx*Ny*nc,2*nnz(warp)*(nc-1)); % TODO: check preallocation accuracy
-                end
-                
-                if (mod(i,2)==1)
-                    %add warping operator forward
-                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*(i-1)+1):(Nx*Ny*i)) = -idOp;
-                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*i+1):(Nx*Ny*(1+i))) = warp;
+                 if (mod(i,2)==1)
+                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))']; %#ok<*AGROW>
+                    spY = [spY;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
+                    spAlloc = [spAlloc;-full(diag(idOp))];
+                    
+                    [sp_x,sp_y,walloc] = find(warp);
+                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
+                    spY = [spY;(Nx*Ny*i+1)+sp_y-1];
+                    spAlloc = [spAlloc;walloc];    
                 else
-                    %add warping operator backward
-                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*(i-1)+1):(Nx*Ny*i)) = warp ; % flexbox updates operator and operatorT here, dunno if this is correctly represented ...
-                    warpingOp((Nx*Ny*(i-1)+1):(Nx*Ny*i), (Nx*Ny*i+1):(Nx*Ny*(1+i))) = -idOp;
+                    [sp_x,sp_y,walloc] = find(warp);
+                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
+                    spY = [spY;(Nx*Ny*(i-1)+1)+sp_y-1];
+                    spAlloc = [spAlloc;walloc];
+                    
+                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
+                    spY = [spY;((Nx*Ny*i+1):(Nx*Ny*(i+1)))'];
+                    spAlloc = [spAlloc;-full(diag(idOp))];
                 end
             end
+            warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*(nc-1),Nx*Ny*nc);
+            
+            warpAcc = exp(-abs(warpingOp*obj.u(:))/obj.gamma(1));
+            if obj.sigma ~= 0
+                warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
+            end
+            D = spdiags(warpAcc(:),0,Nx*Ny*(nc-1),Nx*Ny*(nc-1));
+            
             
             % update warping operator in prost
-            obj.prostU.data.linop{1,2}{1,4}{1} = warpingOp;
+            obj.prostU.data.linop{1,2}{1,4}{1} = obj.eta(obj.currentIt+1)*D*warpingOp;
             
             
             % update alpha for next main iteration
@@ -568,14 +697,14 @@ classdef jointSuperResolutionJonas < handle
                         obj.prostU.data.prox_fstar{1,3}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
                     elseif strcmp(obj.regU,'TGV')
                         obj.prostU.data.prox_fstar{1,3}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
-                        obj.prostU.data.prox_fstar{1,4}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
+                        obj.prostU.data.prox_fstar{1,4}{1,5}{1,4}{1} = 1/(obj.alpha(obj.currentIt+1)*obj.regTGV);
                     end
                 else
                     if strcmp(obj.regU,'TV')
                         obj.prostU.data.prox_fstar{1,3}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
                     elseif strcmp(obj.regU,'TGV')
                         obj.prostU.data.prox_fstar{1,3}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
-                        obj.prostU.data.prox_fstar{1,4}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
+                        obj.prostU.data.prox_fstar{1,4}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1)*obj.regTGV;
                     end
                 end
             end
@@ -591,7 +720,7 @@ classdef jointSuperResolutionJonas < handle
                     uTmp = cat(3,obj.u(:,:,j+1),obj.u(:,:,j));
                 end
                 
-                motionEstimator = motionEstimatorClass(uTmp,1e-6,obj.beta(obj.currentIt),'doGradientConstancy',1);
+                motionEstimator = motionEstimatorClass(uTmp,1e-6,obj.beta(obj.currentIt+1),'doGradientConstancy',1);
                 motionEstimator.regularizerTerm = obj.regV;
                 motionEstimator.verbose = 0;%obj.verbose;
                 motionEstimator.init;
@@ -608,7 +737,9 @@ classdef jointSuperResolutionJonas < handle
             end
             
             if (obj.verbose > 0)
-                figure(200+j);imagesc(flowToColorV2(cat(3,obj.v(:,:,j,1),obj.v(:,:,j,2))));axis image;
+                for j = 1:obj.numFrames-1
+                    figure(200+j);imagesc(flowToColorV2(cat(3,obj.v(:,:,j,1),obj.v(:,:,j,2))));axis image;
+                end
             end
             
             
@@ -680,7 +811,7 @@ classdef jointSuperResolutionJonas < handle
             %image error
             if (~isscalar(obj.gtU))
                 errorU = 0;
-
+                
                 if obj.colorflag
                     for j=1:obj.numFrames
                         %squared error
@@ -700,10 +831,10 @@ classdef jointSuperResolutionJonas < handle
                     % 4D PSNR
                     psnrErr = psnr(obj.u(20:end-20,20:end-20,:,:),obj.gtU(20:end-20,20:end-20,:,1:obj.numFrames));
                     
-                    for j = 1:3 % SSIM computation takes a while ...
-                        ssimErr(j) = ssim(squeeze(obj.u(20:end-20,20:end-20,j,:)),squeeze(obj.gtU(20:end-20,20:end-20,j,1:obj.numFrames))); %#ok<AGROW>
-                    end
-                    ssimErr = mean(ssimErr); % mean over all color channels
+                    %for j = 1:3 % SSIM computation takes a while ...
+                    %    ssimErr(j) = ssim(squeeze(obj.u(20:end-20,20:end-20,j,:)),squeeze(obj.gtU(20:end-20,20:end-20,j,1:obj.numFrames))); %#ok<AGROW>
+                    %end
+                    %ssimErr = mean(ssimErr); % mean over all color channels
                 else
                     
                     if size(obj.gtU) ~= size(obj.u)
@@ -730,10 +861,10 @@ classdef jointSuperResolutionJonas < handle
                     psnrErr = psnr(obj.u(20:end-20,20:end-20,:),obj.gtU(20:end-20,20:end-20,1:obj.numFrames));
                     
                     % SSIM computation takes a while ...
-                    ssimErr = ssim(obj.u(20:end-20,20:end-20,:),obj.gtU(20:end-20,20:end-20,1:obj.numFrames));
+                    %ssimErr = ssim(obj.u(20:end-20,20:end-20,:),obj.gtU(20:end-20,20:end-20,1:obj.numFrames));
                 end
                 
-                
+                ssimErr = 0; % for testing disabled
                 disp(['PSNR (central patch): ',num2str(psnrErr),' dB']);
                 disp(['SSIM (central patch): ',num2str(ssimErr),' ']);
                 
@@ -785,7 +916,9 @@ classdef jointSuperResolutionJonas < handle
                 end
                 
                 %% update warping operators and parameters for u problem
-                obj.updateProstU;
+                if obj.currentIt ~= obj.numMainIt
+                    obj.updateProstU;
+                end
                 
                 %% update blur kernels
                 disp('Solving blur problem');
@@ -796,7 +929,9 @@ classdef jointSuperResolutionJonas < handle
             end
             
             %% Recompute RGB image in color mode
-            obj.recomputeRGB
+            if obj.colorflag
+                obj.recomputeRGB
+            end
             
             if obj.profiler
                 profile off
