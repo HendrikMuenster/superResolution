@@ -3,7 +3,7 @@ classdef jointSuperResolutionJonas < handle
     % solve a joint super-resolution and optical flow problem, estimating
     % the optical flow 'v' of an unknown high resolution video 'u' from a low
     % resolution video 'imageSequenceSmall' while jointly recovering the
-    % high resolution video.
+    % high resolution video and the motion/downsample blur kernels k_i
     %% Class properties:
     properties
         
@@ -131,14 +131,19 @@ classdef jointSuperResolutionJonas < handle
             obj.opts.backend = prost.backend.pdhg(...
                 'tau0', 100, ...
                 'sigma0', 0.01, ...
-                'stepsize', 'boyd');                % prost backend options
-            obj.opts.opts = prost.options('max_iters', 2500, ...
+                'stepsize', 'boyd' ...
+                ...'residual_iter',100 ...
+                ...'alg2_gamma', 2 ...
+                );                % prost backend options
+            obj.opts.opts = prost.options('max_iters', 3500, ...
                 'num_cback_calls', 5, ...
                 ...'tol_rel_primal', 1e-16, ...
                 ...'tol_rel_dual', 1e-16, ...
                 ...'tol_abs_dual', 1e-7, ...
                 ...'tol_abs_primal', 1e-7, ...
                 'verbose', true);                   % prost structure options
+            obj.opts.nsize = 5;                     % radius of local boundary, choose 0 for no local boundaries
+            obj.opts.offset = 0.1;                  % offset of local boundary
             
             obj.regU = 'TV';                        % u regularizer options
             obj.regUq = 1;                          % u regularizer options
@@ -242,24 +247,26 @@ classdef jointSuperResolutionJonas < handle
                 end
             end
             warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*(nc-1),Nx*Ny*nc);
+            if obj.verbose > 0
+                disp('warp operator constructed');
+            end
             
             % preweight, based on warping accuracy
             u_up = zeros(Ny,Nx,nc);
             for i = 1:nc
                 u_up(:,:,i) = imresize(obj.imageSequenceSmall(:,:,i),obj.factor);
             end
-            warpAcc = exp(-abs(warpingOp*u_up(:))/obj.gamma(1));
-            if obj.sigma ~= 0
-                warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
-            end
+%             warpAcc = exp(-abs(warpingOp*u_up(:)).^2/obj.gamma(1));
+%             if obj.sigma ~= 0
+%                 warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
+%             end
             
-            D = spdiags(warpAcc(:),0,Nx*Ny*(nc-1),Nx*Ny*(nc-1));
+            %D = spdiags(warpAcc(:),0,Nx*Ny*(nc-1),Nx*Ny*(nc-1));
             
-            warpingOp = obj.eta(1)*D*warpingOp;
+            disp(['warp energy on bicubic: ',num2str(sum(abs(warpingOp*u_up(:)))/numel(u_up))])
+            %warpingOp = warpingOp;
             
-            % use weighting parameter gamma - folded into accuracy weight
-            %warpingOp = obj.gamma(obj.currentIt)*warpingOp;
-            
+
             
             %%%% initialize prost variables and operators
             
@@ -296,8 +303,20 @@ classdef jointSuperResolutionJonas < handle
                 error('invalid regularization type')
             end
             
+            % Construct local boundaries
+            nsize = obj.opts.nsize;
+            offsetLoc = obj.opts.offset;
+            
+            
+            localNhood = strel('disk',nsize);
+            localMin = imerode(u_up,localNhood);
+            localMax = imdilate(u_up,localNhood);
+            lmin = localMin(:)-offsetLoc; lmax = localMax(:)+offsetLoc;
+            
+            
             %%%% Connect variables to a prost min-max problem and add functions
             if strcmp(obj.regU,'TV')
+
                 obj.prostU = prost.min_max_problem( {u_vec}, {q,p,g} );
                 % Core
                 obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
@@ -307,9 +326,13 @@ classdef jointSuperResolutionJonas < handle
                 
                 % add functions
                 % Core
-                %obj.prostU.add_function(u_vec,prost.function.sum_ind_simplex(Nx*Ny,true));
+                if obj.opts.nsize ~= 0
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
+                else
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                end
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
-                obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, 0, 0)); %l^1
+                obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 1/(2*obj.eta(obj.currentIt)), -0.5, 1, 0, 0)); %l^1
                 % Regularizer
                 if obj.regUq == 1
                     obj.prostU.add_function(g, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha(obj.currentIt), 1, 1, 0, 0)); %l^{2,1}
@@ -322,6 +345,11 @@ classdef jointSuperResolutionJonas < handle
                 end
                 
             elseif strcmp(obj.regU,'TGV')
+                if obj.opts.nsize ~= 0
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
+                else
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                end
                 obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {q,p,g1,g2} );
                 % Core
                 
@@ -334,9 +362,13 @@ classdef jointSuperResolutionJonas < handle
                 
                 % Add functions
                 % Core
-                %obj.prostU.add_function(u_vec,prost.function.sum_ind_simplex(Nx*Ny,true));
+                if obj.opts.nsize ~= 0
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
+                else
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                end
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
-                obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, 0, 0)); %l^1
+                obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 1/(2*obj.eta(obj.currentIt)), -0.5, 1, 0, 0)); %l^1
                 % Regularizer
                 if obj.regUq == 1
                     obj.prostU.add_function(g1, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha(obj.currentIt), 1, 1, 0, 0)); %l^{2,1}
@@ -367,9 +399,14 @@ classdef jointSuperResolutionJonas < handle
                 obj.prostU.add_dual_pair(v_vec, g3, prost.block.sparse(spmat_gradient2d(Nx, Ny, 2*nc)));
                 % Add functions
                 % Core
-                %obj.prostU.add_function(u_vec,prost.function.sum_ind_simplex(Nx*Ny,true));
+                if obj.opts.nsize ~= 0
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
+                else
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                end
+                obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
-                obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, 0, 0)); %l^1
+               obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 1/(2*obj.eta(obj.currentIt)), -0.5, 1, 0, 0)); %l^1
                 % Regularizer
                 if obj.regUq == 1
                     obj.prostU.add_function(g2, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha(obj.currentIt), 1, 1, 0, 0)); %l^{2,1}
@@ -398,9 +435,13 @@ classdef jointSuperResolutionJonas < handle
                 
                 % add functions
                 % Core
-                %obj.prostU.add_function(u_vec,prost.function.sum_ind_simplex(Nx*Ny,true));
+                if obj.opts.nsize ~= 0
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
+                else
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                end
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
-                obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, 0, 0)); %l^1
+                obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 1/(2*obj.eta(obj.currentIt)), -0.5, 1, 0, 0)); %l^1
                 % Regularizer
                 if obj.regUq == 1
                     obj.prostU.add_function(g1, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha(obj.currentIt), 1, 1, 0, 0)); %l^{2,1}
@@ -421,8 +462,8 @@ classdef jointSuperResolutionJonas < handle
                 obj.opts.backend = prost.backend.pdhg('stepsize', 'alg2', ...
                     'residual_iter', -1, ...
                     'alg2_gamma', gamma_factor);
-                obj.opts.opts = prost.options('max_iters', 1500, ...
-                    'num_cback_calls', 0, ...
+                obj.opts.opts = prost.options('max_iters', 3500, ...
+                    'num_cback_calls', 5, ...
                     'verbose', true);
                 %( initialization is actually the bigger problem than a
                 %  few thousand extra iterations )
@@ -454,7 +495,7 @@ classdef jointSuperResolutionJonas < handle
                 obj.v(:,:,j,1) = imresize(vTmp(:,:,1,1), obj.dimsLarge) * obj.factor;
                 obj.v(:,:,j,2) = imresize(vTmp(:,:,1,2), obj.dimsLarge) * obj.factor;
                 
-                if (obj.verbose > 0)
+                if (obj.verbose > 1)
                     figure(200+j);imagesc(flowToColorV2(cat(3,obj.v(:,:,j,1),obj.v(:,:,j,2))));axis image;
                     
                 end
@@ -618,17 +659,29 @@ classdef jointSuperResolutionJonas < handle
             obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge(1), obj.dimsLarge(2), obj.numFrames]);
             
             
-            %%% sanity check:
-            %obj.u = call_prost_wrapper(obj);
-            
-            
-            
             % show solution
             for j=1:obj.numFrames
-                if (obj.verbose > 0)
+                if (obj.verbose > 1)
                     figure(100+j);imagesc(obj.u(:,:,j),[0,1]);axis image;colormap(gray);drawnow
                 end
             end
+            
+            if strcmp(obj.regU,'infTV');
+                w = obj.prostU.primal_vars{1,2}.val;
+                w = reshape(w,obj.dimsLarge(1),obj.dimsLarge(2),obj.numFrames);
+                for j=1:obj.numFrames
+                    if (obj.verbose > 1)
+                        figure(500+j);imagesc(w(:,:,j));axis image;colormap(gray);colorbar; drawnow
+                    end
+                end
+                for j=1:obj.numFrames
+                    if (obj.verbose > 1)
+                        figure(600+j);imagesc(obj.u(:,:,j)-w(:,:,j));axis image;colormap(gray);colorbar; drawnow
+                    end
+                end
+            end
+            %pause();
+            
         end
         
         %% Construct u solver update
@@ -679,15 +732,26 @@ classdef jointSuperResolutionJonas < handle
             end
             warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*(nc-1),Nx*Ny*nc);
             
-            warpAcc = exp(-abs(warpingOp*obj.u(:))/obj.gamma(1));
+            % preweight, based on warping accuracy
+
+            warpAcc = exp(-abs(warpingOp*obj.u(:)).^2/obj.gamma(1));
             if obj.sigma ~= 0
                 warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
             end
+            
             D = spdiags(warpAcc(:),0,Nx*Ny*(nc-1),Nx*Ny*(nc-1));
+            
+            disp(['warp energy on iteration: ',num2str(sum(abs(warpingOp*obj.u(:)))/numel(obj.u))])
+            warpingOp = obj.eta(1)*D*warpingOp;
+            
+            
+            if obj.verbose > 0
+                disp('warping operator updated');
+            end
             
             
             % update warping operator in prost
-            obj.prostU.data.linop{1,2}{1,4}{1} = obj.eta(obj.currentIt+1)*D*warpingOp;
+            obj.prostU.data.linop{1,2}{1,4}{1} = warpingOp;
             
             
             % update alpha for next main iteration
@@ -713,11 +777,24 @@ classdef jointSuperResolutionJonas < handle
         
         %% Call v solver from motionEstimationGUI (which wraps flexBox)
         function solveV(obj)
+            if strcmp(obj.regU,'infTV')
+                w = obj.prostU.primal_vars{1,2}.val;
+                w = reshape(w,obj.dimsLarge(1),obj.dimsLarge(2),obj.numFrames);
+                %             warpAcc = exp(-abs(warpingOp*obj.u(:)).^2/obj.gamma(1));
+                %             if obj.sigma ~= 0
+                %                 warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
+                %             end
+                uw = obj.u-w;
+            else
+                uw = obj.u;
+            end
+            
             for j=1:obj.numFrames-1
+
                 if (mod(j,2)==1)    %calculate backward flow: v s.t. u_2(x+v)=u_1(x)
-                    uTmp = cat(3,obj.u(:,:,j),obj.u(:,:,j+1));
+                    uTmp = cat(3,uw(:,:,j),uw(:,:,j+1));
                 else                %calculate backward flow: v s.t. u_1(x+v)=u_2(x)
-                    uTmp = cat(3,obj.u(:,:,j+1),obj.u(:,:,j));
+                    uTmp = cat(3,uw(:,:,j+1),uw(:,:,j));
                 end
                 
                 motionEstimator = motionEstimatorClass(uTmp,1e-6,obj.beta(obj.currentIt+1),'doGradientConstancy',1);
@@ -730,13 +807,13 @@ classdef jointSuperResolutionJonas < handle
                 obj.v(:,:,j,1) = vTmp(:,:,1,1);
                 obj.v(:,:,j,2) = vTmp(:,:,1,2);
                 
-                if obj.verbose
+                if obj.verbose > 0
                     disp(['Updated high-res velocity field calculated for frames [',num2str(j),',',num2str(j+1),']']);
                 end
                 
             end
             
-            if (obj.verbose > 0)
+            if (obj.verbose > 1)
                 for j = 1:obj.numFrames-1
                     figure(200+j);imagesc(flowToColorV2(cat(3,obj.v(:,:,j,1),obj.v(:,:,j,2))));axis image;
                 end
@@ -760,7 +837,7 @@ classdef jointSuperResolutionJonas < handle
             prost.solve(obj.prostK,obj.kOpts.backend,obj.kOpts.opts);
             toc
             obj.k  = reshape(obj.prostK.primal_vars{1,1}.val,obj.kernelsize,obj.kernelsize,obj.numFrames);
-            if obj.verbose
+            if obj.verbose > 1
                 % draw subplots of blur kernels results
                 msize = ceil(sqrt(obj.numFrames+1));
                 maxis = max(obj.k(:));
@@ -777,7 +854,7 @@ classdef jointSuperResolutionJonas < handle
             end
             
             
-            % Update operator in prostU object
+            %Update operator in prostU object
             DK = [];
             for i = 1:obj.numFrames % this needs to be done smarter at some point
                 %tmpOp = writeKernelToSparseDownsamplingMatrix(obj.k(:,:,i),1,obj.dimsLarge(1),obj.dimsLarge(2)); % there is a bug in here somewhere
@@ -921,9 +998,10 @@ classdef jointSuperResolutionJonas < handle
                 end
                 
                 %% update blur kernels
-                disp('Solving blur problem');
-                obj.solveBlur;
-                
+                if obj.currentIt ~= obj.numMainIt
+                    disp('Solving blur problem');
+                    obj.solveBlur;
+                end
                 
                 disp(['-------Main Iteration ',num2str(i), ' finished !'])
             end
