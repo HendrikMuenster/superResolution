@@ -11,7 +11,7 @@ clearvars;
 
 
 %% Load data 
-datasetName = 'foreman';
+datasetName = 'city';
 color = 1;
 startFrame = 5;
 numFrames = 5;
@@ -61,16 +61,16 @@ mainSuper.verbose = 2;                     % enable intermediate output, 1 is te
 mainSuper.profiler = 0;                    % enable profiling
 
 % Problem parameters
-mainSuper.regU = 'infTV';                  % regU type, 'TV' / 'TGV' (is TGV-2)
+mainSuper.regU = 'infAdd';                  % regU type, 'TV' / 'TGV' (is TGV-2)
 mainSuper.regUq = 1;                       % TV/TGV-2 exponent
 mainSuper.regTGV = sqrt(2);                % TV-TGV weight - this value is coupled to alpha !
-mainSuper.alpha = 0.01;                  % regU weights
+mainSuper.alpha = 0.00001;                  % regU weights
 mainSuper.kOpts.delta  = 0;                % blur l2 penalties
 mainSuper.kOpts.zeta   = 0.5;              % blur Tikh penalties
 
 mainSuper.regV = 'Huber';                  % regV type
 mainSuper.beta = 0.1;                     % regV weights
-mainSuper.eta  = 0.0001;                    % warp weight
+mainSuper.eta  = 0.00001;                    % warp weight
 mainSuper.opts.nsize = 0;                  % radius of local boundary, choose 0 for no local boundaries
 mainSuper.opts.offset = 0.05;               % offset of local boundary
 mainSuper.gamma = 1/eps;                   % outlier removal, to to 1/eps for total outlier removal, but 1 is usually enough
@@ -115,5 +115,5 @@ imwrite(mainSuper.u(:,:,:,cslice),fileNaming);
 
 %% 
 disp('---------------------------------------------------------------------')
-close all
+%close all
 %beep

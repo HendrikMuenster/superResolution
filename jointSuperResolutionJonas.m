@@ -129,13 +129,13 @@ classdef jointSuperResolutionJonas < handle
             
             obj.numMainIt = 1;                      % Number of total outer iterations
             obj.opts.backend = prost.backend.pdhg(...
-                'tau0', 100, ...
-                'sigma0', 0.01, ...
+                ...'tau0', 100, ...
+                ...'sigma0', 0.01, ...
                 'stepsize', 'boyd' ...
                 ...'residual_iter',100 ...
                 ...'alg2_gamma', 2 ...
                 );                % prost backend options
-            obj.opts.opts = prost.options('max_iters', 3500, ...
+            obj.opts.opts = prost.options('max_iters', 12500, ...
                 'num_cback_calls', 5, ...
                 ...'tol_rel_primal', 1e-16, ...
                 ...'tol_rel_dual', 1e-16, ...
@@ -280,25 +280,34 @@ classdef jointSuperResolutionJonas < handle
                 w_vec = prost.variable(Nx*Ny*nc);
                 v_vec = prost.variable(Nx*Ny*nc*2);
             elseif strcmp(obj.regU,'infTV')
-                w_vec = prost.variable(Nx*Ny*nc);     
+                w_vec = prost.variable(Nx*Ny*nc); 
+            elseif strcmp(obj.regU,'infAdd')
+                w_vec = prost.variable(Nx*Ny*nc); 
             end
             
-            % Dual - Core Variables
+            % Dual - Core Variable
             p = prost.variable(nx*ny*nc);           % dual variable for fitting to data
-            q = prost.variable(Nx*Ny*(nc-1));       % dual variable for warping between data
-            
             
             % Dual - Varying regularizer duals:
             if strcmp(obj.regU,'TV')
                 g = prost.variable(2*Nx*Ny*nc);     % dual variable for TV regularization
+                q = prost.variable(Nx*Ny*(nc-1));       % dual variable for warping between data
             elseif strcmp(obj.regU,'TGV')
                 g1 = prost.variable(2*Nx*Ny*nc);     % dual variable for TGV regularization (to u)
                 g2 = prost.variable(4*Nx*Ny*nc);     % dual variable for TGV regularization (to w)
+                q  = prost.variable(Nx*Ny*(nc-1));       % dual variable for warping between data
             elseif strcmp(obj.regU,'infTGV')
                 g2 = prost.variable(Nx*Ny*nc*2);
                 g3 = prost.variable(Nx*Ny*nc*4);
+                q  = prost.variable(Nx*Ny*(nc-1));       % dual variable for warping between data
             elseif strcmp(obj.regU,'infTV')
                 g1 = prost.variable(2*Nx*Ny*nc);
+                q  = prost.variable(Nx*Ny*(nc-1));       % dual variable for warping between data
+            elseif strcmp(obj.regU,'infAdd')
+                g1 = prost.variable(3*Nx*Ny*nc);
+                g2 = prost.variable(3*Nx*Ny*nc);
+            elseif strcmp(obj.regU,'upsample');
+                %nothing
             else
                 error('invalid regularization type')
             end
@@ -312,6 +321,9 @@ classdef jointSuperResolutionJonas < handle
             localMin = imerode(u_up,localNhood);
             localMax = imdilate(u_up,localNhood);
             lmin = localMin(:)-offsetLoc; lmax = localMax(:)+offsetLoc;
+            
+            lambda = 1;
+            kappa = 5;
             
             
             %%%% Connect variables to a prost min-max problem and add functions
@@ -440,7 +452,7 @@ classdef jointSuperResolutionJonas < handle
                 else
                     obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
                 end
-                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 1/(2*lambda), -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(q, prost.function.sum_1d('ind_box01', 1/(2*obj.eta(obj.currentIt)), -0.5, 1, 0, 0)); %l^1
                 % Regularizer
                 if obj.regUq == 1
@@ -453,6 +465,34 @@ classdef jointSuperResolutionJonas < handle
                         1,0,obj.alpha(obj.currentIt),0,0, obj.regUq))); % l^\regUq
                 end
                 
+            elseif strcmp(obj.regU,'infAdd')
+                obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2} );
+                warpingOp = [warpingOp;sparse(Nx*Ny,Nx*Ny*nc)];
+                % Core
+                obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp;kappa*spmat_gradient2d(Nx, Ny,nc)]));
+                obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp;kappa*spmat_gradient2d(Nx, Ny,nc)]));
+                obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse([kappa*warpingOp;spmat_gradient2d(Nx, Ny,nc)]));
+                % add functions
+                % Core
+                if obj.opts.nsize ~= 0
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
+                else
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                end
+                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 1/(2*lambda), -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.eta(obj.currentIt), 1, 1, 0, 0)); %l^{2,1}
+                obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha(obj.currentIt), 1, 1, 0, 0)); %l^{2,1}
+            
+            elseif strcmp(obj.regU,'upsample')
+                obj.prostU = prost.min_max_problem( {u_vec}, {p} );
+                obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                if obj.opts.nsize ~= 0
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
+                else
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                end
+                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 1/(2*lambda), -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
             end
             
             
@@ -657,7 +697,9 @@ classdef jointSuperResolutionJonas < handle
             prost.solve(obj.prostU, obj.opts.backend, obj.opts.opts);
             toc
             obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge(1), obj.dimsLarge(2), obj.numFrames]);
-            
+           w = obj.prostU.primal_vars{1,2}.val;
+           w = reshape(w,obj.dimsLarge(1),obj.dimsLarge(2),obj.numFrames);
+           obj.u = obj.u-w;
             
             % show solution
             for j=1:obj.numFrames
@@ -666,7 +708,7 @@ classdef jointSuperResolutionJonas < handle
                 end
             end
             
-            if strcmp(obj.regU,'infTV');
+            if strcmp(obj.regU,'infTV') || strcmp(obj.regU,'infAdd')
                 w = obj.prostU.primal_vars{1,2}.val;
                 w = reshape(w,obj.dimsLarge(1),obj.dimsLarge(2),obj.numFrames);
                 for j=1:obj.numFrames
@@ -734,15 +776,15 @@ classdef jointSuperResolutionJonas < handle
             
             % preweight, based on warping accuracy
 
-            warpAcc = exp(-abs(warpingOp*obj.u(:)).^2/obj.gamma(1));
-            if obj.sigma ~= 0
-                warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
-            end
+            %warpAcc = exp(-abs(warpingOp*obj.u(:)).^2/obj.gamma(1));
+            %if obj.sigma ~= 0
+            %    warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
+            %end
             
-            D = spdiags(warpAcc(:),0,Nx*Ny*(nc-1),Nx*Ny*(nc-1));
+            %D = spdiags(warpAcc(:),0,Nx*Ny*(nc-1),Nx*Ny*(nc-1));
             
             disp(['warp energy on iteration: ',num2str(sum(abs(warpingOp*obj.u(:)))/numel(obj.u))])
-            warpingOp = obj.eta(1)*D*warpingOp;
+            %warpingOp = obj.eta(1)*D*warpingOp;
             
             
             if obj.verbose > 0
