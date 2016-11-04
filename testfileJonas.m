@@ -11,7 +11,7 @@ clearvars;
 
 
 %% Load data 
-datasetName = 'city';
+datasetName = 'tubeZoom2';
 color = 1;
 startFrame = 5;
 numFrames = 5;
@@ -21,11 +21,16 @@ dataPath = ['..',filesep,'superResolutionData',filesep,datasetName,filesep];
 if color
     dataFile = [dataPath,'data_color.mat'];
 else
-    dataFile = [dataPath,'data.mat'];
+    dataFile = [dataPath,'data.mat']; %#ok<*UNRCH>
 end
 
 
 load(dataFile);
+
+% Add noise
+% for ii = 1:numFrames
+%     imageSequenceSmall(:,:,:,ii) = imnoise(imageSequenceSmall(:,:,:,ii), 'salt & pepper',0.1); %#ok<SAGROW>
+% end
 addpath(genpath(cd)); % only load paths if data location was error free
 
 
@@ -50,13 +55,13 @@ end
 
 %% Init algorithm class thing
 %mainSuper = jointSuperResolutionJonas(imageSequenceStart,'gtU', imageSequenceLarge,'datasetName',datasetName);
-mainSuper = jointSuperResolutionJonas(imageSequenceStart);
+mainSuper = jointSuperResolutionJonas(imageSequenceStart,'gtU',imageSequenceLarge);
 
 %% Set variables
 
 % Prodcedure
 mainSuper.factor = 4;                      % magnification factor
-mainSuper.numMainIt = 1;                   % number of total outer iterations
+mainSuper.numMainIt = 2;                   % number of total outer iterations
 mainSuper.verbose = 2;                     % enable intermediate output, 1 is text, 2 is image
 mainSuper.profiler = 0;                    % enable profiling
 
@@ -64,25 +69,25 @@ mainSuper.profiler = 0;                    % enable profiling
 mainSuper.regU = 'infAdd';                  % regU type, 'TV' / 'TGV' (is TGV-2)
 mainSuper.regUq = 1;                       % TV/TGV-2 exponent
 mainSuper.regTGV = sqrt(2);                % TV-TGV weight - this value is coupled to alpha !
-mainSuper.alpha = 0.00001;                  % regU weights
+mainSuper.alpha = 0.01;                  % regU weights
 mainSuper.kOpts.delta  = 0;                % blur l2 penalties
-mainSuper.kOpts.zeta   = 0.5;              % blur Tikh penalties
+mainSuper.kOpts.zeta   = 0.01;              % blur Tikh penalties
 
 mainSuper.regV = 'Huber';                  % regV type
-mainSuper.beta = 0.1;                     % regV weights
-mainSuper.eta  = 0.00001;                    % warp weight
+mainSuper.beta = 0.2;                     % regV weights
+mainSuper.eta  = 0.01;                    % warp weight
 mainSuper.opts.nsize = 0;                  % radius of local boundary, choose 0 for no local boundaries
 mainSuper.opts.offset = 0.05;               % offset of local boundary
 mainSuper.gamma = 1/eps;                   % outlier removal, to to 1/eps for total outlier removal, but 1 is usually enough
 mainSuper.sigma = 0;                       % patchwise extension of outlier removal                   
 
-mainSuper.kOpts.initKx =  exp(-(-3:3).^2 / 1.6);  % initial separable kernel (x)
-mainSuper.kOpts.initKy =  exp(-(-3:3).^2 / 1.6);  % initial separable kernel (y)
+mainSuper.kOpts.initKx =  exp(-(-3:3).^2 / 1.2);  % initial separable kernel (x)
+mainSuper.kOpts.initKy =  exp(-(-3:3).^2 / 1.2);  % initial separable kernel (y)
 
 
 %% INIT flow field and solvers
 mainSuper.init;
-%mainSuper.init_u;
+
 
 %% Solve joint problem by alternating through u, v and k subproblems
 

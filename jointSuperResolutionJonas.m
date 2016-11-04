@@ -52,7 +52,7 @@ classdef jointSuperResolutionJonas < handle
         % vForward
         % vExists
         % numWarpTerm
-        
+        xdist
         
         % Book-keeping
         currentIt          % notifies solvers of current iteration
@@ -262,10 +262,11 @@ classdef jointSuperResolutionJonas < handle
 %             end
             
             %D = spdiags(warpAcc(:),0,Nx*Ny*(nc-1),Nx*Ny*(nc-1));
-            
-            disp(['warp energy on bicubic: ',num2str(sum(abs(warpingOp*u_up(:)))/numel(u_up))])
-            %warpingOp = warpingOp;
-            
+            warpPix = sum(abs(warpingOp*u_up(:)))/numel(u_up);
+            disp(['warp energy on bicubic (per pixel): ',num2str(warpPix)]);
+            GradOp = spmat_gradient2d(Nx, Ny, nc);
+            gradPix = sum(abs(GradOp*u_up(:)))/numel(u_up);
+            disp(['gradient energy on bicubic (per pixel): ',num2str(gradPix)])
 
             
             %%%% initialize prost variables and operators
@@ -323,9 +324,9 @@ classdef jointSuperResolutionJonas < handle
             lmin = localMin(:)-offsetLoc; lmax = localMax(:)+offsetLoc;
             
             lambda = 1;
-            kappa = 5;
-            
-            
+            kappa  = 0.1;
+            xdist  = gradPix/warpPix; 
+            obj.xdist = xdist; %#ok<*PROP>
             %%%% Connect variables to a prost min-max problem and add functions
             if strcmp(obj.regU,'TV')
 
@@ -470,9 +471,9 @@ classdef jointSuperResolutionJonas < handle
                 warpingOp = [warpingOp;sparse(Nx*Ny,Nx*Ny*nc)];
                 % Core
                 obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
-                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp;kappa*spmat_gradient2d(Nx, Ny,nc)]));
-                obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp;kappa*spmat_gradient2d(Nx, Ny,nc)]));
-                obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse([kappa*warpingOp;spmat_gradient2d(Nx, Ny,nc)]));
+                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp*xdist;kappa*spmat_gradient2d(Nx, Ny,nc)]));
+                obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp*xdist;kappa*spmat_gradient2d(Nx, Ny,nc)]));
+                obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse([kappa*warpingOp*xdist;spmat_gradient2d(Nx, Ny,nc)]));
                 % add functions
                 % Core
                 if obj.opts.nsize ~= 0
@@ -606,7 +607,7 @@ classdef jointSuperResolutionJonas < handle
             
             % re-initialize u,v
             obj.u = zeros([obj.dimsLarge,obj.numFrames]);
-            obj.v = zeros([obj.dimsLarge,obj.numFrames,2]);
+            obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
             obj.k = zeros(obj.kernelsize^2*obj.numFrames,1);
             
             if length(obj.alpha) ~= obj.numMainIt
@@ -697,10 +698,10 @@ classdef jointSuperResolutionJonas < handle
             prost.solve(obj.prostU, obj.opts.backend, obj.opts.opts);
             toc
             obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge(1), obj.dimsLarge(2), obj.numFrames]);
-           w = obj.prostU.primal_vars{1,2}.val;
-           w = reshape(w,obj.dimsLarge(1),obj.dimsLarge(2),obj.numFrames);
-           obj.u = obj.u-w;
-            
+            %             w = obj.prostU.primal_vars{1,2}.val;
+%             w = reshape(w,obj.dimsLarge(1),obj.dimsLarge(2),obj.numFrames);
+%             obj.u = obj.u-w;
+
             % show solution
             for j=1:obj.numFrames
                 if (obj.verbose > 1)
@@ -772,54 +773,52 @@ classdef jointSuperResolutionJonas < handle
                     spAlloc = [spAlloc;-full(diag(idOp))];
                 end
             end
-            warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*(nc-1),Nx*Ny*nc);
+            warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*nc,Nx*Ny*nc);
             
-            % preweight, based on warping accuracy
-
-            %warpAcc = exp(-abs(warpingOp*obj.u(:)).^2/obj.gamma(1));
-            %if obj.sigma ~= 0
-            %    warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
-            %end
             
-            %D = spdiags(warpAcc(:),0,Nx*Ny*(nc-1),Nx*Ny*(nc-1));
+            warpPix = sum(abs(warpingOp*obj.u(:)))/numel(obj.u);
+            disp(['warp energy on bicubic (per pixel): ',num2str(warpPix)]);
+            GradOp = spmat_gradient2d(Nx, Ny, nc);
+            gradPix = sum(abs(GradOp*obj.u(:)))/numel(obj.u);
+            disp(['gradient energy on bicubic (per pixel): ',num2str(gradPix)])
             
-            disp(['warp energy on iteration: ',num2str(sum(abs(warpingOp*obj.u(:)))/numel(obj.u))])
-            %warpingOp = obj.eta(1)*D*warpingOp;
             
             
             if obj.verbose > 0
                 disp('warping operator updated');
             end
-            
+            kappa = 0.1;
+            xdist  = obj.xdist; 
             
             % update warping operator in prost
-            obj.prostU.data.linop{1,2}{1,4}{1} = warpingOp;
-            
+            obj.prostU.data.linop{1,2}{1,4}{1} = [warpingOp*xdist;kappa*spmat_gradient2d(Nx, Ny,nc)];
+            obj.prostU.data.linop{1,3}{1,4}{1} = -[warpingOp*xdist;kappa*spmat_gradient2d(Nx, Ny,nc)];
+            obj.prostU.data.linop{1,4}{1,4}{1} = [kappa*warpingOp*xdist;spmat_gradient2d(Nx, Ny,nc)];
             
             % update alpha for next main iteration
-            if obj.currentIt ~= obj.numMainIt
-                if obj.regUq == 1
-                    if strcmp(obj.regU,'TV')
-                        obj.prostU.data.prox_fstar{1,3}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
-                    elseif strcmp(obj.regU,'TGV')
-                        obj.prostU.data.prox_fstar{1,3}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
-                        obj.prostU.data.prox_fstar{1,4}{1,5}{1,4}{1} = 1/(obj.alpha(obj.currentIt+1)*obj.regTGV);
-                    end
-                else
-                    if strcmp(obj.regU,'TV')
-                        obj.prostU.data.prox_fstar{1,3}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
-                    elseif strcmp(obj.regU,'TGV')
-                        obj.prostU.data.prox_fstar{1,3}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
-                        obj.prostU.data.prox_fstar{1,4}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1)*obj.regTGV;
-                    end
-                end
-            end
+%             if obj.currentIt ~= obj.numMainIt %dont
+%                 if obj.regUq == 1
+%                     if strcmp(obj.regU,'TV')
+%                         obj.prostU.data.prox_fstar{1,3}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
+%                     elseif strcmp(obj.regU,'TGV')
+%                         obj.prostU.data.prox_fstar{1,3}{1,5}{1,4}{1} = 1/obj.alpha(obj.currentIt+1);
+%                         obj.prostU.data.prox_fstar{1,4}{1,5}{1,4}{1} = 1/(obj.alpha(obj.currentIt+1)*obj.regTGV);
+%                     end
+%                 else
+%                     if strcmp(obj.regU,'TV')
+%                         obj.prostU.data.prox_fstar{1,3}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
+%                     elseif strcmp(obj.regU,'TGV')
+%                         obj.prostU.data.prox_fstar{1,3}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1);
+%                         obj.prostU.data.prox_fstar{1,4}{1,5}{1,1}{1,5}{1,4}{3} = obj.alpha(obj.currentIt+1)*obj.regTGV;
+%                     end
+%                 end
+%             end
             
         end
         
         %% Call v solver from motionEstimationGUI (which wraps flexBox)
         function solveV(obj)
-            if strcmp(obj.regU,'infTV')
+            %if strcmp(obj.regU,'infTV')
                 w = obj.prostU.primal_vars{1,2}.val;
                 w = reshape(w,obj.dimsLarge(1),obj.dimsLarge(2),obj.numFrames);
                 %             warpAcc = exp(-abs(warpingOp*obj.u(:)).^2/obj.gamma(1));
@@ -827,9 +826,9 @@ classdef jointSuperResolutionJonas < handle
                 %                 warpAcc = imfilter(reshape(warpAcc,Nx,Ny,nc-1),fspecial('gaussian',15,obj.sigma),'replicate','conv');
                 %             end
                 uw = obj.u-w;
-            else
-                uw = obj.u;
-            end
+            %else
+            %    uw = obj.u;
+            %end
             
             for j=1:obj.numFrames-1
 
@@ -989,7 +988,7 @@ classdef jointSuperResolutionJonas < handle
                 
                 % save psnr value and parameters, just in case
                 save(['./parameters/',obj.datasetName,'_',num2str(psnrErr,4),'.mat'],'psnrErr','ssimErr');
-                regU = obj.regU; regUq  = obj.regUq; regTGV = obj.regTGV; alpha = obj.alpha; regV = obj.regV; beta= obj.beta; gamma = obj.gamma;  %#ok<NASGU,PROP>
+                regU = obj.regU; regUq  = obj.regUq; regTGV = obj.regTGV; alpha = obj.alpha; regV = obj.regV; beta= obj.beta; gamma = obj.gamma;   %#ok<NASGU>
                 save(['./parameters/',obj.datasetName,'_',num2str(psnrErr,4),'.mat'],'regU','regUq', ...
                     'regTGV','alpha','regV','beta','gamma','-append');
                 
@@ -997,18 +996,9 @@ classdef jointSuperResolutionJonas < handle
             
             %flow error
             if (~isscalar(obj.gtV))
-                errorV = 0;
-                for j=1:obj.numFrames-1
-                    field = squeeze(obj.v(:,:,j,:));
-                    fieldGT = squeeze(obj.gtV(:,:,j,:));
-                    
-                    figure(121);imagesc(flowToColorV2(field));
-                    figure(122);imagesc(flowToColorV2(fieldGT));
-                    
-                    err = absoluteError(field,fieldGT);
-                    errorV = errorV + err;
-                end
-                errorV = errorV / (obj.numFrames-1);
+                % 4D PSNR
+                errorV = psnr(obj.v(20:end-20,20:end-20,:,:),obj.gtV(20:end-20,20:end-20,:,:));
+                disp(['PSNR of flow field(central patch): ',num2str(ErrorV),' dB']);
             end
         end
         
