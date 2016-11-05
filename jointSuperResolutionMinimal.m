@@ -557,7 +557,7 @@ classdef jointSuperResolutionMinimal< handle
             obj.result1 = imageSequenceUp;
             imageSequenceUp = zeros(obj.dimsLarge(1),obj.dimsLarge(2),3,obj.numFrames);
             for i = 1:obj.numFrames
-                imageSequenceUp(:,:,1,i) = obj.u(:,:,i)-obj.w(:,:,1);                            % actually computed Y
+                imageSequenceUp(:,:,1,i) = obj.u(:,:,i)-obj.w(:,:,i);                            % actually computed Y
                 imageSequenceUp(:,:,2,i) = imresize(obj.imageSequenceYCbCr(:,:,2,i),obj.factor); % bicubic Cb
                 imageSequenceUp(:,:,3,i) = imresize(obj.imageSequenceYCbCr(:,:,3,i),obj.factor); % bicubic Cr
                 imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
