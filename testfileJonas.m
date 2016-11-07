@@ -4,14 +4,14 @@
 %
 
 
-clearvars;
+%clearvars;
 %clc;
 %close all
 
 
 
 %% Load data 
-datasetName = 'tubeZoom2';
+datasetName = 'city';
 color = 1;
 startFrame = 5;
 numFrames = 5;
@@ -61,8 +61,8 @@ mainSuper = jointSuperResolutionJonas(imageSequenceStart,'gtU',imageSequenceLarg
 
 % Prodcedure
 mainSuper.factor = 4;                      % magnification factor
-mainSuper.numMainIt = 2;                   % number of total outer iterations
-mainSuper.verbose = 2;                     % enable intermediate output, 1 is text, 2 is image
+mainSuper.numMainIt = 1;                   % number of total outer iterations
+mainSuper.verbose = 1;                     % enable intermediate output, 1 is text, 2 is image
 mainSuper.profiler = 0;                    % enable profiling
 
 % Problem parameters
@@ -74,10 +74,10 @@ mainSuper.kOpts.delta  = 0;                % blur l2 penalties
 mainSuper.kOpts.zeta   = 0.01;              % blur Tikh penalties
 
 mainSuper.regV = 'Huber';                  % regV type
-mainSuper.beta = 0.2;                     % regV weights
+mainSuper.beta = 0.1;                     % regV weights
 mainSuper.eta  = 0.01;                    % warp weight
 mainSuper.opts.nsize = 0;                  % radius of local boundary, choose 0 for no local boundaries
-mainSuper.opts.offset = 0.05;               % offset of local boundary
+mainSuper.opts.offset = 0.1;               % offset of local boundary
 mainSuper.gamma = 1/eps;                   % outlier removal, to to 1/eps for total outlier removal, but 1 is usually enough
 mainSuper.sigma = 0;                       % patchwise extension of outlier removal                   
 

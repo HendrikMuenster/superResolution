@@ -2,61 +2,37 @@
 % Video Super Resolution
 
 clearvars;
+CruncherPath = matlab.desktop.editor.getActive;
+cd(fileparts(CruncherPath.Filename));
 
-
-%% Load data 
-datasetName = 'tubeZoom2';
-color = 1;
-startFrame = 5;
+%% Data properties
+datasetName = 'surfer1';
+startFrame = 1;
 numFrames = 5;
 
-dataPath = ['..',filesep,'superResolutionData',filesep,datasetName,filesep];
-
-if color
-    dataFile = [dataPath,'data_color.mat'];
-else
-    dataFile = [dataPath,'data.mat']; %#ok<*UNRCH>
-end
-
-
-load(dataFile);
+%% Load Video and code
+[imageSequenceSmall,imageSequenceLarge] = LoadImSequence(['../superResolutionData/',datasetName],startFrame,numFrames);    
 addpath(genpath(cd)); % only load paths if data location was error free
 
 
 
-if color
-    imageSequenceStart = im2double(imageSequenceSmall(:,:,:,startFrame:startFrame+numFrames-1));
-    try 
-        imageSequenceLarge = im2double(imageSequenceLarge(:,:,:,startFrame:startFrame+numFrames-1));
-    catch
-        imageSequenceLarge = 0;
-    end
-else 
-    imageSequenceStart = im2double(imageSequenceSmall(:,:,startFrame:startFrame+numFrames-1));
-    try
-         imageSequenceLarge = im2double(imageSequenceLarge(:,:,startFrame:startFrame+numFrames-1));
-    catch 
-        imageSequenceLarge = 0;
-    end
-end
-
 
 
 %% Init algorithm class thing
-mainSuper = jointSuperResolutionMinimal(imageSequenceStart,'gtU',imageSequenceLarge);
+mainSuper = jointSuperResolutionMinimal(imageSequenceSmall,'gtU',imageSequenceLarge);
 
 %% Set variables
 
-% Prodcedure
-mainSuper.factor        = 4;                   % magnification factor
-mainSuper.numMainIt     = 2;                   % number of total outer iterations
-mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
+% Procedure
+mainSuper.factor        = 4;                   % magnification factor, remember to change
+mainSuper.numMainIt     = 1;                   % number of total outer iterations
+mainSuper.verbose       = 2;                   % enable intermediate output, 1 is text, 2 is image
 
 % Problem parameters
-mainSuper.alpha1        = 0.01;                % regU weights
-mainSuper.alpha2        = 0.01;                % regU weights
-mainSuper.beta          = 0.2;                 % regU weights
-mainSuper.kappa         = 0.1;                 % regularization pendulum value
+mainSuper.alpha1        = 0.05;                % regU weights
+mainSuper.alpha2        = 0.05;                % regU weights
+mainSuper.beta          = 0.1;                 % regU weights
+mainSuper.kappa         = 0.5;                 % regularization pendulum value
 mainSuper.kOpts.delta   = 0.01;                % blur Tikh penalties
                   
 
@@ -72,23 +48,33 @@ mainSuper.run;
 
 %% Show error margin
 
-[psnrErr,ssimErr, psnrV] = mainSuper.calculateErrors;
-
+%[psnrErr,ssimErr, psnrV] = mainSuper.calculateErrors;
+outImage = mainSuper.result1(20:end-20,20:end-20,:,ceil(numFrames/2));
+psnrErr = psnr(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ceil(numFrames/2)));
+ssimErr = ssim(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ceil(numFrames/2)));
+disp(['PSNR (central patch, central slice): ',num2str(psnrErr),' dB']);
+disp(['SSIM (central patch, central slice): ',num2str(ssimErr),' ']);
 
 %% visualize video
 if mainSuper.verbose > 0
-    vid = implay(mainSuper.result2,2);  % persists through close all ( \_('')_/¯ ) - use this to compare visual quality to previous iterations
-    set(vid.Parent, 'Name', [mainSuper.regU,'-',num2str(mainSuper.regUq),...
-                            ' with alpha = ',num2str(mainSuper.alpha(end)),...
-                            ', Huber with beta = ',num2str(mainSuper.beta(end)), ...
-                            ', eta is ',num2str(mainSuper.eta(end))]);
+    vid = implay(mainSuper.result1,2);  % persists through close all ( \_('')_/¯ ) - use this to compare visual quality to previous iterations
+    set(vid.Parent, 'Name', ['u of InfAddTV with kappa = ',num2str(mainSuper.kappa),...
+                            ' and alphas ',num2str(mainSuper.alpha1),', ',num2str(mainSuper.alpha2),...
+                            ', regV is Huber with beta = ',num2str(mainSuper.beta), ...
+                            ' - all for ',num2str(mainSuper.numMainIt),' iterations']);
     set(vid.Parent, 'Position',get(0, 'Screensize'));
     
+    vid = implay(mainSuper.result2,2);  % persists through close all ( \_('')_/¯ ) - use this to compare visual quality to previous iterations
+    set(vid.Parent, 'Name', ['u-w of InfAddTV with kappa = ',num2str(mainSuper.kappa),...
+                            ' and alphas ',num2str(mainSuper.alpha1),', ',num2str(mainSuper.alpha2),...
+                            ', regV is Huber with beta = ',num2str(mainSuper.beta), ...
+                            ' - all for ',num2str(mainSuper.numMainIt),' iterations']);
+    set(vid.Parent, 'Position',get(0, 'Screensize'));
 end
 
 %% write central image to file
-fileNaming = ['results',filesep,datasetName,'_',mainSuper.regU,'-',num2str(mainSuper.regUq),' alpha', ...
-    num2str(mainSuper.alpha(end),4),' eta',num2str(mainSuper.eta,4),' its ',num2str(mainSuper.numMainIt),'.png'];
+fileNaming = ['results',filesep,datasetName,'_TVinfAdd_u-w -  alpha1', ...
+    num2str(mainSuper.alpha1,4),', alpha2',num2str(mainSuper.alpha2,4),', its ',num2str(mainSuper.numMainIt),'.png'];
 cslice = floor(numFrames/2);
 imwrite(mainSuper.result2(:,:,:,cslice),fileNaming);
 

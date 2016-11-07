@@ -123,7 +123,7 @@ classdef jointSuperResolutionMinimal< handle
             
             obj.numMainIt = 2;                      % Number of total outer iterations
             obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd');  % prost backend options
-            obj.opts.opts = prost.options('max_iters', 12500, 'num_cback_calls', 5, 'verbose', true);  % prost structure options
+            obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 12, 'verbose', true);  % prost structure options
             obj.opts.nsize = 0;                     % radius of local boundary, choose 0 for no local boundaries
             obj.opts.offset = 0.1;                  % offset of local boundary
             
@@ -216,7 +216,6 @@ classdef jointSuperResolutionMinimal< handle
                 end
             end
             warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*nc,Nx*Ny*nc);
-
             if obj.verbose > 0
                 disp('warp operator constructed');
             end
@@ -254,7 +253,7 @@ classdef jointSuperResolutionMinimal< handle
             % Connect variables to primal-dual problem
             obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2} );
                 
-            obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+            obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));   
             obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
             obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
             obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse([obj.kappa*warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)]));
@@ -297,7 +296,7 @@ classdef jointSuperResolutionMinimal< handle
                 if obj.verbose > 1
                     figure(200+j);imagesc(flowToColorV2(cat(3,obj.v(:,:,j,1),obj.v(:,:,j,2))));axis image;                   
                 end
-                
+                drawnow;
                 if obj.verbose > 0
                     disp(['Initial velocity field calculated for frames [',num2str(j),',',num2str(j+1),']'])
                 end
@@ -347,9 +346,10 @@ classdef jointSuperResolutionMinimal< handle
             % update sizes for non-standard factor
             obj.dimsLarge = obj.factor*obj.dimsSmall;
             
-            % initialize u,v
+            % initialize u,w,v,k
             obj.u = zeros([obj.dimsLarge,obj.numFrames]);
-            obj.v = zeros([obj.dimsLarge,obj.numFrames,2]);
+            obj.w = zeros([obj.dimsLarge,obj.numFrames]);
+            obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
             obj.k = zeros(obj.kernelsize^2*obj.numFrames,1);
             
             % Normalize input kernels
@@ -374,29 +374,18 @@ classdef jointSuperResolutionMinimal< handle
             tic
             prost.solve(obj.prostU, obj.opts.backend, obj.opts.opts);
             toc
-            obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge(1), obj.dimsLarge(2), obj.numFrames]);
-            obj.w = obj.prostU.primal_vars{1,2}.val;
-            obj.w = reshape(obj.w,obj.dimsLarge(1),obj.dimsLarge(2),obj.numFrames);
+            obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge, obj.numFrames]);
+            obj.w = reshape(obj.prostU.primal_vars{1,2}.val,[obj.dimsLarge, obj.numFrames]);
             
             % show solution
             for j=1:obj.numFrames
                 if (obj.verbose > 1)
-                    figure(100+j);imagesc(obj.u(:,:,j),[0,1]);axis image;colormap(gray);drawnow
+                    figure(100+j);imagesc(obj.u(:,:,j),[0,1]);axis image;colormap(gray);
+                    figure(500+j);imagesc(obj.w(:,:,j));axis image;colormap(gray);colorbar;
+                    figure(600+j);imagesc(obj.u(:,:,j)-obj.w(:,:,j));axis image;colormap(gray);colorbar; 
                 end
             end
-            
-            if obj.verbose > 1
-                for j=1:obj.numFrames
-                    if (obj.verbose > 1)
-                        figure(500+j);imagesc(obj.w(:,:,j));axis image;colormap(gray);colorbar; drawnow
-                    end
-                end
-                for j=1:obj.numFrames
-                    if (obj.verbose > 1)
-                        figure(600+j);imagesc(obj.u(:,:,j)-obj.w(:,:,j));axis image;colormap(gray);colorbar; drawnow
-                    end
-                end
-            end
+            drawnow;
             
         end
         
