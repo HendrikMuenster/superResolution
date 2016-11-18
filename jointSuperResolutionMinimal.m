@@ -146,7 +146,7 @@ classdef jointSuperResolutionMinimal< handle
             %sigmaval = 1/16*(obj.factor^2-1); %Innerhofer/Pock:
             obj.kOpts.initKx =  exp(-(-3:3).^2 / sigmaval);  % initial separable kernel (x) - will be normalized later
             obj.kOpts.initKy =  exp(-(-3:3).^2 / sigmaval);  % initial separable kernel (y) - will be normalized later
- 
+            
             
             if (exist('verbose','var'))
                 obj.verbose = verbose;
@@ -165,14 +165,17 @@ classdef jointSuperResolutionMinimal< handle
             %%%% Create operators
             
             % create downsampling operator
-            downsamplingOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
+            dsOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
             
             % and incorporate blur:
-            downsamplingOp =downsamplingOp*createSparseMatrixFrom1dSeperableKernel( ...
+            dsOp =dsOp*createSparseMatrixFrom1dSeperableKernel( ...
                 obj.kOpts.initKx,obj.kOpts.initKy, obj.dimsLarge(1),obj.dimsLarge(2), 'Neumann');
             % initialize block format
-            downsamplingOp = kron(speye(obj.numFrames),downsamplingOp);
-            
+            if obj.numMainIt   ~= 1
+                downsamplingOp = kron(speye(obj.numFrames),dsOp);
+            else
+                downsamplingOp_kron = dsOp;
+            end
             
             % short some notation
             temp = obj.dimsSmall;
@@ -182,7 +185,7 @@ classdef jointSuperResolutionMinimal< handle
             Nx = temp(2);
             nc =  obj.numFrames;
             
-            spX = []; spY = []; spAlloc = []; % nc-1 dynamic reallocations are needed 
+            spX = []; spY = []; spAlloc = []; % nc-1 dynamic reallocations are needed
             % create warping operator from given v
             for i = 1:nc-1
                 % extract flow field
@@ -196,8 +199,8 @@ classdef jointSuperResolutionMinimal< handle
                 marker = sum(abs(warp),2) == 0;
                 warp(marker > 0,:) = 0;
                 idOp(marker > 0,:) = 0; %#ok<SPRIX> % this is still the most painless way
-
-                 if (mod(i,2)==1)
+                
+                if (mod(i,2)==1)
                     spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))']; %#ok<*AGROW>
                     spY = [spY;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
                     spAlloc = [spAlloc;-full(diag(idOp))];
@@ -205,7 +208,7 @@ classdef jointSuperResolutionMinimal< handle
                     [sp_x,sp_y,walloc] = find(warp);
                     spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
                     spY = [spY;(Nx*Ny*i+1)+sp_y-1];
-                    spAlloc = [spAlloc;walloc];    
+                    spAlloc = [spAlloc;walloc];
                 else
                     [sp_x,sp_y,walloc] = find(warp);
                     spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
@@ -232,18 +235,18 @@ classdef jointSuperResolutionMinimal< handle
             GradOp = spmat_gradient2d(Nx, Ny, nc);
             gradPix = sum(abs(GradOp*u_up(:)))/numel(u_up);
             disp(['gradient energy on bicubic (per pixel): ',num2str(gradPix)])
-            obj.tdist  = gradPix/warpPix; 
-
+            obj.tdist  = gradPix/warpPix;
+            
             
             %%%% initialize prost variables and operators
             
             % Primal- Core Variable:
             u_vec = prost.variable(Nx*Ny*nc);
-            w_vec = prost.variable(Nx*Ny*nc); 
-            p = prost.variable(nx*ny*nc);          
+            w_vec = prost.variable(Nx*Ny*nc);
+            p = prost.variable(nx*ny*nc);
             g1 = prost.variable(3*Nx*Ny*nc);
             g2 = prost.variable(3*Nx*Ny*nc);
-
+            
             % Construct local boundaries
             nsize = obj.opts.nsize;
             offsetLoc = obj.opts.offset;
@@ -254,24 +257,44 @@ classdef jointSuperResolutionMinimal< handle
             
             % Connect variables to primal-dual problem
             if obj.kappa ~= 1
-            obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2} );
                 
-            obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));   
-            obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
-            obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
-            obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse([obj.kappa*warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)]));
-            % add functions
-            if obj.opts.nsize ~= 0
-                obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
-            else
-                obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
-            end
-            obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
-            obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1, 1, 1, 0, 0)); %l^{2,1}
-            obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
-            else
+                % Generate min-max problem structure
+                obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2} );
+                
+                
+                % Initialize full downsampling implictely as kron(id(numFrames,D) if possible
+                if obj.numMainIt ~= 1
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                else
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.id_kron_sparse(downsamplingOp_kron,obj.numFrames));
+                end
+                
+                % Add inf-conv duals
+                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
+                obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
+                obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse([obj.kappa*warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)]));
+                % Add functions
+                if obj.opts.nsize ~= 0
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
+                else
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                end
+                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1, 1, 1, 0, 0)); %l^{2,1}
+                obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
+            else    % Simplify if no infimal convolution is necessary
+                
+                % Generate min-max problem structure
                 obj.prostU = prost.min_max_problem( {u_vec}, {p,g1} );
-                obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                
+                % Initialize full downsampling implictely as kron(id(numFrames,D) if possible
+                if obj.numMainIt ~= 1
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                else
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse_kron_id(downsamplingOp_kron,obj.numFrames));
+                end
+                
+                % Add regularizer dual
                 obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)]));
                 % add functions
                 if obj.opts.nsize ~= 0
@@ -309,7 +332,7 @@ classdef jointSuperResolutionMinimal< handle
                 obj.v(:,:,j,2) = imresize(vTmp(:,:,1,2), obj.dimsLarge) * obj.factor;
                 
                 if obj.verbose > 1
-                    figure(200+j);imagesc(flowToColorV2(cat(3,obj.v(:,:,j,1),obj.v(:,:,j,2))));axis image;                   
+                    figure(200+j);imagesc(flowToColorV2(cat(3,obj.v(:,:,j,1),obj.v(:,:,j,2))));axis image;
                 end
                 drawnow;
                 if obj.verbose > 0
@@ -319,7 +342,7 @@ classdef jointSuperResolutionMinimal< handle
             end
             drawnow;
         end
-
+        
         %% create blur estimator object in prost
         function init_k(obj)
             %  only to initiate prost block and validate sizes
@@ -391,14 +414,14 @@ classdef jointSuperResolutionMinimal< handle
             %toc
             obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge, obj.numFrames]);
             if obj.kappa ~=1
-            obj.w = reshape(obj.prostU.primal_vars{1,2}.val,[obj.dimsLarge, obj.numFrames]);
+                obj.w = reshape(obj.prostU.primal_vars{1,2}.val,[obj.dimsLarge, obj.numFrames]);
             end
             % show solution
             for j=1:obj.numFrames
                 if (obj.verbose > 1)
                     figure(100+j);imagesc(obj.u(:,:,j),[0,1]);axis image;colormap(gray);
                     figure(500+j);imagesc(obj.w(:,:,j));axis image;colormap(gray);colorbar;
-                    figure(600+j);imagesc(obj.u(:,:,j)-obj.w(:,:,j));axis image;colormap(gray);colorbar; 
+                    figure(600+j);imagesc(obj.u(:,:,j)-obj.w(:,:,j));axis image;colormap(gray);colorbar;
                 end
             end
             drawnow;
@@ -431,7 +454,7 @@ classdef jointSuperResolutionMinimal< handle
                 warp(marker > 0,:) = 0;
                 idOp(marker > 0,:) = 0; %#ok<SPRIX>
                 
-                 if (mod(i,2)==1)
+                if (mod(i,2)==1)
                     spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))']; %#ok<*AGROW>
                     spY = [spY;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
                     spAlloc = [spAlloc;-full(diag(idOp))];
@@ -439,7 +462,7 @@ classdef jointSuperResolutionMinimal< handle
                     [sp_x,sp_y,walloc] = find(warp);
                     spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
                     spY = [spY;(Nx*Ny*i+1)+sp_y-1];
-                    spAlloc = [spAlloc;walloc];    
+                    spAlloc = [spAlloc;walloc];
                 else
                     [sp_x,sp_y,walloc] = find(warp);
                     spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
@@ -452,7 +475,7 @@ classdef jointSuperResolutionMinimal< handle
                 end
             end
             warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*nc,Nx*Ny*nc);
-           
+            
             
             disp(['warp energy on iteration: ',num2str(sum(abs(warpingOp*obj.u(:)))/numel(obj.u))])
             
@@ -561,15 +584,15 @@ classdef jointSuperResolutionMinimal< handle
             end
             obj.result1 = imageSequenceUp;
             if obj.kappa ~= 1
-            imageSequenceUp = zeros(obj.dimsLarge(1),obj.dimsLarge(2),3,obj.numFrames);
-            for i = 1:obj.numFrames
-                imageSequenceUp(:,:,1,i) = obj.u(:,:,i)-obj.w(:,:,i);                            % actually computed Y
-                imageSequenceUp(:,:,2,i) = imresize(obj.imageSequenceYCbCr(:,:,2,i),obj.factor); % bicubic Cb
-                imageSequenceUp(:,:,3,i) = imresize(obj.imageSequenceYCbCr(:,:,3,i),obj.factor); % bicubic Cr
-                imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
+                imageSequenceUp = zeros(obj.dimsLarge(1),obj.dimsLarge(2),3,obj.numFrames);
+                for i = 1:obj.numFrames
+                    imageSequenceUp(:,:,1,i) = obj.u(:,:,i)-obj.w(:,:,i);                            % actually computed Y
+                    imageSequenceUp(:,:,2,i) = imresize(obj.imageSequenceYCbCr(:,:,2,i),obj.factor); % bicubic Cb
+                    imageSequenceUp(:,:,3,i) = imresize(obj.imageSequenceYCbCr(:,:,3,i),obj.factor); % bicubic Cr
+                    imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
+                end
+                obj.result2 = imageSequenceUp;
             end
-            obj.result2 = imageSequenceUp;           
-        end
         end
         
         
@@ -579,13 +602,13 @@ classdef jointSuperResolutionMinimal< handle
             psnrV = -1;
             
             %image error
-            if (~isscalar(obj.gtU)) 
+            if (~isscalar(obj.gtU))
                 if obj.colorflag
                     % 4D PSNR
                     psnrErr = psnr(obj.result2(20:end-20,20:end-20,:,:),obj.gtU(20:end-20,20:end-20,:,1:obj.numFrames));
                     
                     for j = 1:3 % SSIM computation takes a while ...
-                        ssimErr(j) = ssim(squeeze(obj.result2(20:end-20,20:end-20,j,:)),squeeze(obj.gtU(20:end-20,20:end-20,j,1:obj.numFrames))); 
+                        ssimErr(j) = ssim(squeeze(obj.result2(20:end-20,20:end-20,j,:)),squeeze(obj.gtU(20:end-20,20:end-20,j,1:obj.numFrames)));
                     end
                     ssimErr = mean(ssimErr); % mean over all color channels
                 else

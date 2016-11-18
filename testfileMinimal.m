@@ -6,12 +6,13 @@ CruncherPath = matlab.desktop.editor.getActive;
 cd(fileparts(CruncherPath.Filename));
 
 %% Data properties
-datasetName = 'tube3';
+datasetName = 'city';
 startFrame = 1;
-numFrames = 13;
+numFrames = 5;
 
 %% Load Video and code
-[imageSequenceSmall,imageSequenceLarge] = LoadImSequence(['../superResolutionData/',datasetName],startFrame,numFrames);    
+dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
+[imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames);    
 addpath(genpath(cd)); % only load paths if data location was error free
 
 
@@ -57,14 +58,14 @@ disp(['SSIM (central patch, central slice): ',num2str(ssimErr),' ']);
 
 %% visualize video
 if mainSuper.verbose > 0
-    vid = implay(mainSuper.result1,2);  % persists through close all ( \_('')_/¯ ) - use this to compare visual quality to previous iterations
+    vid = implay(mainSuper.result1,2);  % persists through close all ( \_('')_/ï¿½ ) - use this to compare visual quality to previous iterations
     set(vid.Parent, 'Name', ['u of InfAddTV with kappa = ',num2str(mainSuper.kappa),...
                             ' and alphas ',num2str(mainSuper.alpha1),', ',num2str(mainSuper.alpha2),...
                             ', regV is Huber with beta = ',num2str(mainSuper.beta), ...
                             ' - all for ',num2str(mainSuper.numMainIt),' iterations']);
     set(vid.Parent, 'Position',get(0, 'Screensize'));
     
-    vid = implay(mainSuper.result2,2);  % persists through close all ( \_('')_/¯ ) - use this to compare visual quality to previous iterations
+    vid = implay(mainSuper.result2,2);  % persists through close all ( \_('')_/ï¿½ ) - use this to compare visual quality to previous iterations
     set(vid.Parent, 'Name', ['u-w of InfAddTV with kappa = ',num2str(mainSuper.kappa),...
                             ' and alphas ',num2str(mainSuper.alpha1),', ',num2str(mainSuper.alpha2),...
                             ', regV is Huber with beta = ',num2str(mainSuper.beta), ...
