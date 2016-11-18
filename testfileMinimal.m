@@ -6,9 +6,9 @@ CruncherPath = matlab.desktop.editor.getActive;
 cd(fileparts(CruncherPath.Filename));
 
 %% Data properties
-datasetName = 'surfer1';
+datasetName = 'tube3';
 startFrame = 1;
-numFrames = 5;
+numFrames = 13;
 
 %% Load Video and code
 [imageSequenceSmall,imageSequenceLarge] = LoadImSequence(['../superResolutionData/',datasetName],startFrame,numFrames);    
@@ -26,14 +26,14 @@ mainSuper = jointSuperResolutionMinimal(imageSequenceSmall,'gtU',imageSequenceLa
 % Procedure
 mainSuper.factor        = 4;                   % magnification factor, remember to change
 mainSuper.numMainIt     = 1;                   % number of total outer iterations
-mainSuper.verbose       = 2;                   % enable intermediate output, 1 is text, 2 is image
+mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
 
 % Problem parameters
-mainSuper.alpha1        = 0.05;                % regU weights
-mainSuper.alpha2        = 0.05;                % regU weights
+mainSuper.alpha1        = 0.01;                % regU weights
+mainSuper.alpha2        = 0.01;                % regU weights
 mainSuper.beta          = 0.1;                 % regU weights
-mainSuper.kappa         = 0.5;                 % regularization pendulum value
-mainSuper.kOpts.delta   = 0.01;                % blur Tikh penalties
+mainSuper.kappa         = 0.5;                % regularization pendulum value
+mainSuper.kOpts.delta   = 0.5;                 % blur Tikh penalties
                   
 
 
@@ -71,11 +71,16 @@ if mainSuper.verbose > 0
                             ' - all for ',num2str(mainSuper.numMainIt),' iterations']);
     set(vid.Parent, 'Position',get(0, 'Screensize'));
 end
-
+%%
+%% write central image to file
+fileNaming = ['results',filesep,datasetName,'_TVinfAdd_u -  alpha', ...
+    num2str(mainSuper.alpha1,4),', kappa',num2str(mainSuper.kappa,4),', its ',num2str(mainSuper.numMainIt),'.png'];
+cslice = ceil(numFrames/2);
+imwrite(mainSuper.result1(:,:,:,cslice),fileNaming);
 %% write central image to file
 fileNaming = ['results',filesep,datasetName,'_TVinfAdd_u-w -  alpha1', ...
     num2str(mainSuper.alpha1,4),', alpha2',num2str(mainSuper.alpha2,4),', its ',num2str(mainSuper.numMainIt),'.png'];
-cslice = floor(numFrames/2);
+cslice = ceil(numFrames/2);
 imwrite(mainSuper.result2(:,:,:,cslice),fileNaming);
 
 %% 

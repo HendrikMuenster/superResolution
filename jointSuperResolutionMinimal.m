@@ -142,9 +142,11 @@ classdef jointSuperResolutionMinimal< handle
                 'verbose', true);                   % prost structure options for k
             obj.kernelsize = 7;                     % standard kernel size
             obj.kOpts.delta = 0.05;                 % l2 penalty on k
-            obj.kOpts.initKx =  exp(-(-3:3).^2 / 1.2);  % initial separable kernel (x)
-            obj.kOpts.initKy =  exp(-(-3:3).^2 / 1.2);  % initial separable kernel (y)
-            
+            sigmaval = 1.2;
+            %sigmaval = 1/16*(obj.factor^2-1); %Innerhofer/Pock:
+            obj.kOpts.initKx =  exp(-(-3:3).^2 / sigmaval);  % initial separable kernel (x) - will be normalized later
+            obj.kOpts.initKy =  exp(-(-3:3).^2 / sigmaval);  % initial separable kernel (y) - will be normalized later
+ 
             
             if (exist('verbose','var'))
                 obj.verbose = verbose;
@@ -251,6 +253,7 @@ classdef jointSuperResolutionMinimal< handle
             lmin = localMin(:)-offsetLoc; lmax = localMax(:)+offsetLoc;
             
             % Connect variables to primal-dual problem
+            if obj.kappa ~= 1
             obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2} );
                 
             obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));   
@@ -266,7 +269,19 @@ classdef jointSuperResolutionMinimal< handle
             obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
             obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1, 1, 1, 0, 0)); %l^{2,1}
             obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
-            
+            else
+                obj.prostU = prost.min_max_problem( {u_vec}, {p,g1} );
+                obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)]));
+                % add functions
+                if obj.opts.nsize ~= 0
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
+                else
+                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                end
+                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1/2, 1, 1, 0, 0)); %l^{2,1}
+            end
         end
         
         %% calculate initial velocity fields on low resolution input images and scale them up to target resolution
@@ -371,12 +386,13 @@ classdef jointSuperResolutionMinimal< handle
         function solveU(obj)
             
             %call prost framework
-            tic
+            %tic
             prost.solve(obj.prostU, obj.opts.backend, obj.opts.opts);
-            toc
+            %toc
             obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge, obj.numFrames]);
+            if obj.kappa ~=1
             obj.w = reshape(obj.prostU.primal_vars{1,2}.val,[obj.dimsLarge, obj.numFrames]);
-            
+            end
             % show solution
             for j=1:obj.numFrames
                 if (obj.verbose > 1)
@@ -544,6 +560,7 @@ classdef jointSuperResolutionMinimal< handle
                 imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
             end
             obj.result1 = imageSequenceUp;
+            if obj.kappa ~= 1
             imageSequenceUp = zeros(obj.dimsLarge(1),obj.dimsLarge(2),3,obj.numFrames);
             for i = 1:obj.numFrames
                 imageSequenceUp(:,:,1,i) = obj.u(:,:,i)-obj.w(:,:,i);                            % actually computed Y
@@ -552,6 +569,7 @@ classdef jointSuperResolutionMinimal< handle
                 imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
             end
             obj.result2 = imageSequenceUp;           
+        end
         end
         
         
@@ -619,6 +637,19 @@ classdef jointSuperResolutionMinimal< handle
                 end
                 
                 disp(['-------Main Iteration ',num2str(i), ' finished !'])
+                
+                % Produce preliminary output for testing
+                if obj.currentIt ~= obj.numMainIt
+                    obj.recomputeRGB;
+                    centralSlice = ceil(obj.numFrames/2);
+                    outImage = obj.result1(20:end-20,20:end-20,:,centralSlice);
+                    psnrVal = psnr(outImage,obj.gtU(20:end-20,20:end-20,:,centralSlice)) %#ok<NOPRT>
+                    imwrite(outImage,['../outFolder/',obj.datasetName,'/','8_SuperResolutionOurs_P_final_it_',num2str(i),'_PSNR_',num2str(psnrVal,4),'.tif']);
+                    outImage = obj.result2(20:end-20,20:end-20,:,centralSlice);
+                    psnrVal = psnr(outImage,obj.gtU(20:end-20,20:end-20,:,centralSlice));
+                    imwrite(obj.result2(20:end-20,20:end-20,:,centralSlice),['../outFolder/',obj.datasetName,'/SRvariations/','8_SuperResolutionOurs_P_final_2_its_u-w',num2str(psnrVal,4),'.tif']);
+                    WriteToVideo(obj.result1,['../outFolder/',obj.datasetName,'/videos/','8_SuperResolutionOurs_P_final_2_its_.avi']);
+                end
             end
             
             % Recompute RGB image in color mode
