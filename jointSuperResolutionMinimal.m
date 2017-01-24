@@ -185,42 +185,10 @@ classdef jointSuperResolutionMinimal< handle
             Nx = temp(2);
             nc =  obj.numFrames;
             
-            spX = []; spY = []; spAlloc = []; % nc-1 dynamic reallocations are needed
-            % create warping operator from given v
-            for i = 1:nc-1
-                % extract flow field
-                singleField = squeeze(obj.v(:,:,i,:));
-                
-                % create warping operator forward and backward
-                warp = warpingOperator(obj.dimsLarge,singleField);
-                idOp = speye(Nx*Ny);
-                
-                % find out of range warps in each of the operators and set the corresponding line in the other operator also to zero
-                marker = sum(abs(warp),2) == 0;
-                warp(marker > 0,:) = 0;
-                idOp(marker > 0,:) = 0; %#ok<SPRIX> % this is still the most painless way
-                
-                if (mod(i,2)==1)
-                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))']; %#ok<*AGROW>
-                    spY = [spY;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
-                    spAlloc = [spAlloc;-full(diag(idOp))];
-                    
-                    [sp_x,sp_y,walloc] = find(warp);
-                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
-                    spY = [spY;(Nx*Ny*i+1)+sp_y-1];
-                    spAlloc = [spAlloc;walloc];
-                else
-                    [sp_x,sp_y,walloc] = find(warp);
-                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
-                    spY = [spY;(Nx*Ny*(i-1)+1)+sp_y-1];
-                    spAlloc = [spAlloc;walloc];
-                    
-                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
-                    spY = [spY;((Nx*Ny*i+1):(Nx*Ny*(i+1)))'];
-                    spAlloc = [spAlloc;-full(diag(idOp))];
-                end
-            end
-            warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*nc,Nx*Ny*nc);
+            % Call warp operator constructor
+            warpingOp = constructWarpFB(obj.v);
+            %warpingOp = constructWarpFMB(obj.v);
+ 
             if obj.verbose > 0
                 disp('warp operator constructed');
             end
