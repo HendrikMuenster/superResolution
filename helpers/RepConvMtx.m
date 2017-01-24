@@ -4,7 +4,7 @@ function [K] = RepConvMtx(k,dimsLarge)
 %
 %
 if sum(mod(size(k),2)) ~=2
-    error('kernel has even dimensions (which not implemented)')
+    error('kernel has even dimensions (which is not implemented)')
 end
 
 Nx = dimsLarge(1); Ny = dimsLarge(2);
