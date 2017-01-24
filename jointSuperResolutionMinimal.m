@@ -256,7 +256,7 @@ classdef jointSuperResolutionMinimal< handle
             lmin = localMin(:)-offsetLoc; lmax = localMax(:)+offsetLoc;
             
             % Connect variables to primal-dual problem
-            if obj.kappa ~= 1
+            if obj.kappa ~= 1 && ~isnan(obj.kappa)
                 
                 % Generate min-max problem structure
                 obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2} );
@@ -282,7 +282,7 @@ classdef jointSuperResolutionMinimal< handle
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1, 1, 1, 0, 0)); %l^{2,1}
                 obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
-            else    % Simplify if no infimal convolution is necessary
+            elseif obj.kappa == 1    % Simplify if no infimal convolution is necessary
                 
                 % Generate min-max problem structure
                 obj.prostU = prost.min_max_problem( {u_vec}, {p,g1} );
@@ -304,7 +304,33 @@ classdef jointSuperResolutionMinimal< handle
                 end
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1/2, 1, 1, 0, 0)); %l^{2,1}
+            elseif isnan(obj.kappa)    % Do standard TV
+                
+                g1 = prost.variable(Nx*Ny*nc);
+                g2 = prost.variable(2*Nx*Ny*nc);
+                
+                % Generate min-max problem structure
+                obj.prostU = prost.min_max_problem( {u_vec}, {p,g1,g2} );
+                
+                % Initialize full downsampling implictely as kron(id(numFrames,D) if possible
+                if obj.numMainIt ~= 1
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                else
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse_kron_id(downsamplingOp_kron,obj.numFrames));
+                end
+                
+                % Add regularizer dual
+                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse(warpingOp));
+                obj.prostU.add_dual_pair(u_vec, g2, prost.block.gradient2d(Nx, Ny,nc,false));
+                % add functions
+                obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.prostU.add_function(g1, prost.function.sum_1d('ind_box01', 1/(2*obj.alpha1), -0.5, 1, 0, 0)); %l^1
+                obj.prostU.add_function(g2, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha1/2, 1, 1, 0, 0)); %l^{2,1}
+                
+                
             end
+            
         end
         
         %% calculate initial velocity fields on low resolution input images and scale them up to target resolution
