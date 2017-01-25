@@ -259,7 +259,7 @@ classdef jointSuperResolutionMinimal< handle
                 if obj.numMainIt ~= 1
                     obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
                 else
-                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse_kron_id(downsamplingOp_kron,obj.numFrames));
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.id_kron_sparse(downsamplingOp_kron,obj.numFrames));
                 end
                 
                 % Add regularizer dual
@@ -284,11 +284,11 @@ classdef jointSuperResolutionMinimal< handle
                 if obj.numMainIt ~= 1
                     obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
                 else
-                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse_kron_id(downsamplingOp_kron,obj.numFrames));
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.id_kron_sparse(downsamplingOp_kron,obj.numFrames));
                 end
                 
                 % Add regularizer dual
-                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse(warpingOp));
+                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse(warpingOp*obj.tdist)); %*tdist
                 obj.prostU.add_dual_pair(u_vec, g2, prost.block.gradient2d(Nx, Ny,nc,false));
                 % add functions
                 obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
@@ -410,7 +410,7 @@ classdef jointSuperResolutionMinimal< handle
             prost.solve(obj.prostU, obj.opts.backend, obj.opts.opts);
             %toc
             obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge, obj.numFrames]);
-            if obj.kappa ~=1
+            if obj.kappa ~=1 && ~isnan(obj.kappa)
                 obj.w = reshape(obj.prostU.primal_vars{1,2}.val,[obj.dimsLarge, obj.numFrames]);
             end
             % show solution
@@ -571,7 +571,7 @@ classdef jointSuperResolutionMinimal< handle
                     psnrErr = psnr(obj.result2(20:end-20,20:end-20,:,:),obj.gtU(20:end-20,20:end-20,:,1:obj.numFrames));
                     
                     for j = 1:3 % SSIM computation takes a while ...
-                        ssimErr(j) = ssim(squeeze(obj.result2(20:end-20,20:end-20,j,:)),squeeze(obj.gtU(20:end-20,20:end-20,j,1:obj.numFrames)));
+                        ssimErr(j) = ssim(squeeze(obj.result2(20:end-20,20:end-20,j,:)),squeeze(obj.gtU(20:end-20,20:end-20,j,1:obj.numFrames))); %#ok<AGROW>
                     end
                     ssimErr = mean(ssimErr); % mean over all color channels
                 else
