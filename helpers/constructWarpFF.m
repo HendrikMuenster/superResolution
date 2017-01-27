@@ -1,6 +1,6 @@
-function warpingOp = constructWarpFF(v)
-%Create warp operator for FB scheme as seen in paper
-type = 'F-I';
+function warpingOp = constructWarpFF(v,type)
+%Create warp operator for FF scheme
+%type = 'F-I';
 %type = 'I-F';
 
 

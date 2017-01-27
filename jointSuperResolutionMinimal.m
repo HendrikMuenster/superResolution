@@ -122,8 +122,9 @@ classdef jointSuperResolutionMinimal< handle
             % will be constructed in init_u, init_v and init_k calls
             
             obj.numMainIt = 2;                      % Number of total outer iterations
-            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd');  % prost backend options
-            obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 12, 'verbose', true);  % prost structure options
+            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 100, ...
+                                                              'sigma0', 0.01);  % prost backend options
+            obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 5, 'verbose', true);  % prost structure options
             obj.opts.nsize = 0;                     % radius of local boundary, choose 0 for no local boundaries
             obj.opts.offset = 0.1;                  % offset of local boundary
             
@@ -186,8 +187,9 @@ classdef jointSuperResolutionMinimal< handle
             nc =  obj.numFrames;
             
             % Call warp operator constructor
-            warpingOp = constructWarpFB(obj.v);
-            %warpingOp = constructWarpFMB(obj.v);
+             warpingOp = constructWarpFB(obj.v);
+ %            warpingOp = constructWarpFMB(obj.v);
+ %           warpingOp = constructWarpFF(obj.v,'I-F');
  
             if obj.verbose > 0
                 disp('warp operator constructed');
@@ -210,6 +212,7 @@ classdef jointSuperResolutionMinimal< handle
             
             % Primal- Core Variable:
             u_vec = prost.variable(Nx*Ny*nc);
+            u_vec.val = u_up(:);
             w_vec = prost.variable(Nx*Ny*nc);
             p = prost.variable(nx*ny*nc);
             g1 = prost.variable(3*Nx*Ny*nc);
@@ -315,7 +318,7 @@ classdef jointSuperResolutionMinimal< handle
                 else            %calculate backward flow: v s.t. u_1(x+v)=u_2(x)
                     uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
                 end
-%                uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
+               %uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
                 
                 
                 motionEstimatorLow = motionEstimatorClass(uTmpSmall,1e-6,obj.beta,'doGradientConstancy',1);

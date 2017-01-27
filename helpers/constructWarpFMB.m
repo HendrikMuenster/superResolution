@@ -6,7 +6,7 @@ function [warpingOp] = constructWarpFMB(v)
 
 
 % Get sizes
-[Ny,Nx,~,n4] = size(v);
+[Ny,Nx,n4,~] = size(v);
 nc =  n4+1;
 
 spX = []; spY = []; spAlloc = [];
@@ -15,8 +15,8 @@ for i=1:nc - 1
     singleField = squeeze(v(:,:,i,:));
     
     %create warping operator forward and backward
-    warpF = warpingOperator([Nx,Ny],0.5*singleField);
-    warpB = warpingOperator([Nx,Ny],-0.5*singleField);
+    warpF = warpingOperator([Ny,Nx],0.5*singleField);
+    warpB = warpingOperator([Ny,Nx],-0.5*singleField);
     
     %find out of range warps in each of the operators and set the
     %corresponding line in the other operator also to zero
