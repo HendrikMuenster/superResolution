@@ -1,7 +1,7 @@
 %
 % Video Super Resolution
-
-%clearvars;
+close all
+clearvars;
 pPSNR = [];
 pSSIM = [];
 CruncherPath = matlab.desktop.editor.getActive;
@@ -27,7 +27,7 @@ for ii = 1:length(testCases)
     
     
     %% Init algorithm class thing
-    mainSuper = jointSuperResolutionMinimal(imageSequenceSmall);
+    mainSuper = jointSuperResolutionMinimal(imageSequenceSmall,'testCase',testCases{ii});
     
     %% Set variables
     
@@ -64,9 +64,11 @@ for ii = 1:length(testCases)
 end
 %%
 
-figure(),plot(pPSNR'),legend('FB','F-I','I-B','FMB');
+figure(),plot(pPSNR'),legend('FB','F-I','I-B','FMB');title('PSNR values per frame');
 
-figure(),plot(pSSIM'),legend('FB','F-I','I-B','FMB');
+figure(),plot(pSSIM'),legend('FB','F-I','I-B','FMB');title('SSIM values per frame');
+
+drawnow
 %%
 disp('---------------------------------------------------------------------')
 %close all
