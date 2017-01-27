@@ -15,7 +15,7 @@ numFrames = 13;
 
 testCases = {'FB','F-I','I-B','FMB'};
 
-for ii = length{testCases}
+for ii = 1:length(testCases)
     
     %% Load Video and code
     dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
