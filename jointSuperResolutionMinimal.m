@@ -51,6 +51,7 @@ classdef jointSuperResolutionMinimal< handle
         % Book-keeping
         currentIt          % notifies solvers of current iteration
         colorflag          % Is set to 1 for color videos to enable YCbCr treatment
+        testCase
     end
     
     methods
@@ -86,6 +87,12 @@ classdef jointSuperResolutionMinimal< handle
                 obj.datasetName = datasetName; %#ok<*CPROPLC>
             else
                 obj.datasetName = '';
+            end
+            
+            if (exist('testCase','var'))
+                obj.testCase = testCase; %#ok<*CPROPLC>
+            else
+                obj.testCase = 'FB';
             end
             
             % Problem Structure
@@ -187,10 +194,16 @@ classdef jointSuperResolutionMinimal< handle
             nc =  obj.numFrames;
             
             % Call warp operator constructor
-             warpingOp = constructWarpFB(obj.v);
- %            warpingOp = constructWarpFMB(obj.v);
- %           warpingOp = constructWarpFF(obj.v,'I-F');
- 
+            if strcmp(obj.testCase,'FB')
+                warpingOp = constructWarpFB(obj.v);
+            elseif strcmp(obj.testCase,'FMB')
+                warpingOp = constructWarpFMB(obj.v);
+            elseif strcmp(obj.testCase,'F-I')
+                warpingOp = constructWarpFF(obj.v,'F-I');
+            elseif strcmp(obj.testCase,'I-B')
+                warpingOp = constructWarpFF(obj.v,'I-F');
+            end
+            
             if obj.verbose > 0
                 disp('warp operator constructed');
             end
@@ -313,12 +326,21 @@ classdef jointSuperResolutionMinimal< handle
             
             for j=1:obj.numFrames-1
                 
-                if (mod(j,2)==1)%calculate backward flow: v s.t. u_2(x+v)=u_1(x)
-                    uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
-                else            %calculate backward flow: v s.t. u_1(x+v)=u_2(x)
+                
+                % Select correct flow direction
+                if strcmp(obj.testCase,'FB')
+                    if (mod(j,2)==1)%calculate backward flow: v s.t. u_2(x+v)=u_1(x)
+                        uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
+                    else            %calculate backward flow: v s.t. u_1(x+v)=u_2(x)
+                        uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                    end
+                elseif strcmp(obj.testCase,'FMB')
                     uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                elseif strcmp(obj.testCase,'F-I')
+                    uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                elseif strcmp(obj.testCase,'I-B')
+                    uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
                 end
-               %uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
                 
                 
                 motionEstimatorLow = motionEstimatorClass(uTmpSmall,1e-6,obj.beta,'doGradientConstancy',1);
