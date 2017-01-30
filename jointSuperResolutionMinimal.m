@@ -229,92 +229,87 @@ classdef jointSuperResolutionMinimal< handle
 
             % Build gradient matrices
             D = spmat_gradient2d(Nx, Ny,1);
-            Dx = D(1:Nx*Ny); Dy = D(Nx*Ny+1:end);
-            
-            if obj.verbose > 0
-                disp('warp operator constructed');
-            end
-            
-            % preweight, based on warping accuracy
-            u_up = zeros(Ny,Nx,nc);
-            for i = 1:nc
-                u_up(:,:,i) = imresize(obj.imageSequenceSmall(:,:,i),obj.factor);
-            end
-            warpPix = sum(abs(warpingOp*u_up(:)))/numel(u_up);
-            disp(['warp energy on bicubic (per pixel): ',num2str(warpPix)]);
-            GradOp = spmat_gradient2d(Nx, Ny, nc);
-            gradPix = sum(abs(GradOp*u_up(:)))/numel(u_up);
-            disp(['gradient energy on bicubic (per pixel): ',num2str(gradPix)])
-            obj.tdist  = gradPix/warpPix;
+            Dx = D(1:Nx*Ny,:); Dy = D(Nx*Ny+1:end,:);
             
             %%%% initialize flexBox solver
             
             obj.MMCsolver = flexBox;
             obj.MMCsolver.params.tol = 1e-6;
+            obj.MMCsolver.params.tryCPP = 1;
             
             % Add primal variables u and w
             for i = 1:2*nc
                 obj.MMCsolver.addPrimalVar(obj.dimsLarge);
             end
             
-            % Build primal-dual problem
+            % Build data terms
             for i = 1:nc
                 
                 % Add L1-data
-                obj.MMCsolver.addTerm(L1dataTermOperator(1,dsOp,obj.imageSequenceSmall(:,:,i),i));
+                obj.MMCsolver.addTerm(L1dataTermOperator(1,dsOp,obj.imageSequenceSmall(:,:,i)),i);
                 
                 % Add box constraint
                 obj.MMCsolver.addTerm(boxConstraint(0,1,obj.dimsLarge),i);
             end
             
+            
+            u_up = zeros([obj.dimsLarge,nc]);
+            u_up(:,:,1) = imresize(obj.imageSequenceSmall(:,:,1),obj.factor);
+            
+            % Build infconv regularizer
             for i = 1:nc-1
                 
                 % Develop warp operator and place in infconv
                 singleField = squeeze(obj.v(:,:,i,:));
-                Wi   = obj.tdist*warpinOperator(obj.dimsLarge,singleField);
+                Wi   = warpingOperator(obj.dimsLarge,singleField);
                 Id     = speye(Nx*Ny);
                 
+                % Remove out-of range warps
                 marker = sum(abs(Wi),2) == 0;
                 Wi(marker > 0,:) = 0;
                 Id(marker > 0,:) = 0; %#ok<SPRIX>
+                u_up(:,:,i+1) = imresize(obj.imageSequenceSmall(:,:,i+1),obj.factor);
                 
-                Id2 = spdiags(1-double(marker),1,Nx*Ny,Nx*Ny);
-                disp(sum(sum(abs(Id-Id2))))
-                
-                if (mod(i,2)==1) && i
-                    % Add first infconv part 
-                    %  A1 = [ Dx  0  -Dx 0  ;
-                    %        Dy  0  -Dy 0  ;
-                    %        Wi -Id -Wi Id];
+                if (mod(i,2)==1)
+                    
+                    % Find h (now per image!)
+                    u_i     = u_up(:,:,i);
+                    u_i1    = u_up(:,:,i+1);
+                    warpPix = sum(abs(Wi*u_i(:)-u_i1(:)))/numel(u_i);
+                    gradPix = sum(abs([Dx;Dy]*u_i(:)))/numel(u_i);
+                    obj.tdist(i) = gradPix/max(warpPix,eps);
+                    Wi      = obj.tdist(i)*Wi;
+                    
+                    % Add first infconv part
                     flexA1 = {obj.kappa*Dx,zeroOperator(Nx*Ny),-obj.kappa*Dx,zeroOperator(Nx*Ny), ...
-                              obj.kappa*Dy,zeroOperator(Nx*Ny),-obj.kappa*Dy,zeroOperator(Nx*Ny), ...
-                              Wi,          -Id                ,-Wi,          Id                 };  
-                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,4,flexA1,[i,i+1,nc+i,nc+i+1])); 
+                        obj.kappa*Dy,zeroOperator(Nx*Ny),-obj.kappa*Dy,zeroOperator(Nx*Ny), ...
+                        Wi,          -Id                ,-Wi,          Id                 };
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,4,flexA1),[i,i+1,nc+i,nc+i+1]);
                     % Add second infconv part
-                    % A2 = [ Dx,  0;
-                    %        Dy,  0;
-                    %        Wi, -Id];
                     flexA2 = {Dx,           zeroOperator(Nx*Ny), ...
-                              Dy,           zeroOperator(Nx*Ny), ...
-                              obj.kappa*Wi,-Id                };
-                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,2,flexA2,[nc+i,nc+i+1])); 
+                        Dy,           zeroOperator(Nx*Ny), ...
+                        obj.kappa*Wi,-Id                };
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,2,flexA2),[nc+i,nc+i+1]);
                 else
-                    % Add first infconv part 
-                    %  A1 = [ Dx  0  -Dx 0  ;
-                    %        Dy  0  -Dy 0  ;
-                    %        Wi -Id -Wi Id];
+                    
+                    % Find h (now per image!)
+                    u_i     = u_up(:,:,i);
+                    u_i1    = u_up(:,:,i+1);
+                    warpPix = sum(abs(-u_i(:)+Wi*u_i1(:)))/numel(u_i);
+                    gradPix = sum(abs([Dx;Dy]*u_i(:)))/numel(u_i);
+                    obj.tdist(i) = gradPix/max(warpPix,eps);
+                    Wi      = obj.tdist(i)*Wi;
+                    
+                    % Add first infconv part
                     flexA1 = {Dx,zeroOperator(Nx*Ny),-Dx,zeroOperator(Nx*Ny), ...
-                              Dy,zeroOperator(Nx*Ny),-Dy,zeroOperator(Nx*Ny), ...
-                              -Id,Wi                ,-Id,Wi                 };
-                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,4,flexA1,[i,i+1,nc+i,nc+i+1])); 
+                        Dy,zeroOperator(Nx*Ny),-Dy,zeroOperator(Nx*Ny), ...
+                        -Id,Wi                ,-Id,Wi                 };
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,4,flexA1),[i,i+1,nc+i,nc+i+1]);
                     % Add second infconv part
-                    % A2 = [ Dx,  0;
-                    %        Dy,  0;
-                    %        Wi, -Id];
                     flexA2 = {Dx,zeroOperator(Nx*Ny), ...
-                              Dy,zeroOperator(Nx*Ny), ...
-                              -Id,Wi                };
-                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,2,flexA2,[nc+i,nc+i+1]));   
+                        Dy,zeroOperator(Nx*Ny), ...
+                        -Id,Wi                };
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,2,flexA2),[nc+i,nc+i+1]);
                 end
                 
             end
