@@ -219,15 +219,14 @@ classdef jointSuperResolutionMinimal< handle
         function init_u(obj)
             %%%% Create operators
             
-            % create downsampling operator
-            %dsOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
-            %dsOp =dsOp*RepConvMtx(obj.k0,obj.dimsLarge); % This is often terrible
-            
             % Call sampling function to construct matrix representation
             dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
+            %dsOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
             
             % Use blur kernel:
-            dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
+            if ~isempty(obj.k) || isscalar(obj.k)
+                dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
+            end
             
             % initialize block format
             if obj.numMainIt   ~= 1
@@ -260,6 +259,7 @@ classdef jointSuperResolutionMinimal< handle
                 obj.warpOp = warpingOp;
             else
                 warpingOp = obj.warpOp;
+                
             end
             
             if obj.verbose > 0
@@ -288,14 +288,6 @@ classdef jointSuperResolutionMinimal< handle
             g1 = prost.variable(3*Nx*Ny*nc);
             g2 = prost.variable(3*Nx*Ny*nc);
             
-            % Construct local boundaries
-            nsize = obj.opts.nsize;
-            offsetLoc = obj.opts.offset;
-            localNhood = strel('disk',nsize);
-            localMin = imerode(u_up,localNhood);
-            localMax = imdilate(u_up,localNhood);
-            lmin = localMin(:)-offsetLoc; lmax = localMax(:)+offsetLoc;
-            
             % Connect variables to primal-dual problem
             if obj.kappa ~= 1 && ~isnan(obj.kappa)
                 
@@ -315,11 +307,8 @@ classdef jointSuperResolutionMinimal< handle
                 obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
                 obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse([obj.kappa*warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)]));
                 % Add functions
-                if obj.opts.nsize ~= 0
-                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
-                else
-                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
-                end
+
+                obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1, 1, 1, 0, 0)); %l^{2,1}
                 obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
@@ -475,7 +464,7 @@ classdef jointSuperResolutionMinimal< handle
             if obj.flowCompute
                 obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
             end
-            obj.k = zeros(obj.kernelsize^2*obj.numFrames,1);
+            %obj.k = zeros(obj.kernelsize^2*obj.numFrames,1);
             
             
             
@@ -485,34 +474,7 @@ classdef jointSuperResolutionMinimal< handle
             end
             
             
-            
-            %             % Construct initial k
-            %             kr = floor(obj.kernelsize/2); % kernel radius
-            %
-            %             if strcmp(obj.lowPass,'Gaussian')
-            %                 sigmaval = obj.lowPassParam;
-            %                 obj.k0 =   exp(-(-kr:kr).^2 / sigmaval)'*exp(-(-kr:kr).^2 / sigmaval);
-            %                 if sigmaval == 0
-            %                     obj.k0 = zeros(obj.kernelsize);
-            %                     obj.k0(kr+1,kr+1) = 1;
-            %                 end
-            %             elseif strcmp(obj.lowPass,'truncSinc')
-            %
-            %                 h = obj.lowPassParam; % I have no idea how to do this right
-            %                 krh = h*(-kr:kr);
-            %                 kdim = sinc(krh);
-            %                 obj.k0 = kdim'*kdim;
-            %             elseif strcmp(obj.lowPass,'Lanczos')
-            %                 a = obj.lowPassParam;
-            %                 h = 1/obj.factor; % I have no idea how to do this right
-            %                 krh = h*(-kr:kr);
-            %                 k_dim1 = sinc(krh).*sinc(krh/a).*(abs(krh)<a);
-            %                 obj.k0 = k_dim1'*k_dim1;
-            %             else
-            %                 error('invalid low pass filter specified');
-            %             end
-            %             % always normalize (but should I ?)
-            %             obj.k0 = obj.k0/sum(obj.k0(:));
+           
             
             % Init u
             obj.init_u;
