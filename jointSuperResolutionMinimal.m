@@ -33,11 +33,10 @@ classdef jointSuperResolutionMinimal< handle
         gtV
         
         % Solver options
-        prostU             % main solver class for u subproblem
         mainV              % main solver class for v subproblem
         prostK             % main solver class for k subproblem
+        MMCsolver          % main solver for flexBox
         
-        opts               % prost options
         alpha1             % weights for regularizer of u
         alpha2             % weights for regularizer of u
         beta               % weights for regularizer of v
@@ -164,18 +163,9 @@ classdef jointSuperResolutionMinimal< handle
             end
             
             % Solver options
-            %prostU                                 % main solver class for u subproblem
             %mainV                                  % main solver class for v subproblem
             %prostK                                 % main solver class for k subproblem
-            % will be constructed in init_u, init_v and init_k calls
-            
-                                                             
-            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 100, ...
-                                                  'sigma0', 0.01);  % prost backend options
-            obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 5, 'verbose', true);  % prost structure options
-            obj.numMainIt = 1;                      % Number of total outer iterations
-            obj.opts.nsize = 0;                     % radius of local boundary, choose 0 for no local boundaries
-            obj.opts.offset = 0.1;                  % offset of local boundary
+            % will be constructed in init_u, init_v and init_k calls                                
             
             obj.alpha1 = 0.01;                      % weights for regularizer of u
             obj.alpha2 = 0.01;                      % weights for regularizer of u
@@ -215,7 +205,7 @@ classdef jointSuperResolutionMinimal< handle
             
         end
         
-        %% create prost object for u
+        %% create flexBox object for u
         function init_u(obj)
             %%%% Create operators
             
@@ -228,39 +218,18 @@ classdef jointSuperResolutionMinimal< handle
                 dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
             end
             
-            % initialize block format
-            if obj.numMainIt   ~= 1
-                downsamplingOp = kron(speye(obj.numFrames),dsOp);
-            else
-                downsamplingOp_kron = dsOp;
-            end
             if obj.verbose > 0
                 disp('downsampling operator constructed');
             end
             % short some notation
-            temp = obj.dimsSmall;
-            ny=temp(1); nx=temp(2);
             temp = obj.dimsLarge;
             Ny = temp(1);
             Nx = temp(2);
             nc =  obj.numFrames;
-            
-            % Call warp operator constructor
-            if isscalar(obj.warpOp)
-                if strcmp(obj.testCase,'FB')
-                    warpingOp = constructWarpFB(obj.v);
-                elseif strcmp(obj.testCase,'FMB')
-                    warpingOp = constructWarpFMB(obj.v);
-                elseif strcmp(obj.testCase,'F-I')
-                    warpingOp = constructWarpFF(obj.v,'F-I');
-                elseif strcmp(obj.testCase,'I-B')
-                    warpingOp = constructWarpFF(obj.v,'I-F');
-                end
-                obj.warpOp = warpingOp;
-            else
-                warpingOp = obj.warpOp;
-                
-            end
+
+            % Build gradient matrices
+            D = spmat_gradient2d(Nx, Ny,1);
+            Dx = D(1:Nx*Ny); Dy = D(Nx*Ny+1:end);
             
             if obj.verbose > 0
                 disp('warp operator constructed');
@@ -278,91 +247,77 @@ classdef jointSuperResolutionMinimal< handle
             disp(['gradient energy on bicubic (per pixel): ',num2str(gradPix)])
             obj.tdist  = gradPix/warpPix;
             
-            %%%% initialize prost variables and operators
+            %%%% initialize flexBox solver
             
-            % Primal- Core Variable:
-            u_vec = prost.variable(Nx*Ny*nc);
-            u_vec.val = u_up(:);
-            w_vec = prost.variable(Nx*Ny*nc);
-            p = prost.variable(nx*ny*nc);
-            g1 = prost.variable(3*Nx*Ny*nc);
-            g2 = prost.variable(3*Nx*Ny*nc);
+            obj.MMCsolver = flexBox;
+            obj.MMCsolver.params.tol = 1e-6;
             
-            % Connect variables to primal-dual problem
-            if obj.kappa ~= 1 && ~isnan(obj.kappa)
-                
-                % Generate min-max problem structure
-                obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2} );
-                
-                
-                % Initialize full downsampling implictely as kron(id(numFrames,D) if possible
-                if obj.numMainIt ~= 1
-                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
-                else
-                    obj.prostU.add_dual_pair(u_vec, p, prost.block.id_kron_sparse(downsamplingOp_kron,obj.numFrames));
-                end
-                
-                % Add inf-conv duals
-                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
-                obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
-                obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse([obj.kappa*warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)]));
-                % Add functions
-
-                obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
-                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
-                obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1, 1, 1, 0, 0)); %l^{2,1}
-                obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
-                
-            elseif obj.kappa == 1    % Simplify if no infimal convolution is necessary
-                
-                % Generate min-max problem structure
-                obj.prostU = prost.min_max_problem( {u_vec}, {p,g1} );
-                
-                % Initialize full downsampling implictely as kron(id(numFrames,D) if possible
-                if obj.numMainIt ~= 1
-                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
-                else
-                    obj.prostU.add_dual_pair(u_vec, p, prost.block.id_kron_sparse(downsamplingOp_kron,obj.numFrames));
-                end
-                
-                % Add regularizer dual
-                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)]));
-                % add functions
-                if obj.opts.nsize ~= 0
-                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
-                else
-                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
-                end
-                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
-                obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1/2, 1, 1, 0, 0)); %l^{2,1}
-            
-            elseif isnan(obj.kappa)    % Do standard TV
-                
-                g1 = prost.variable(Nx*Ny*nc);
-                g2 = prost.variable(2*Nx*Ny*nc);
-                
-                % Generate min-max problem structure
-                obj.prostU = prost.min_max_problem( {u_vec}, {p,g1,g2} );
-                
-                % Initialize full downsampling implictely as kron(id(numFrames,D) if possible
-                if obj.numMainIt ~= 1
-                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
-                else
-                    obj.prostU.add_dual_pair(u_vec, p, prost.block.id_kron_sparse(downsamplingOp_kron,obj.numFrames));
-                end
-                
-                % Add regularizer dual
-                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse(warpingOp*obj.tdist)); %*tdist
-                obj.prostU.add_dual_pair(u_vec, g2, prost.block.gradient2d(Nx, Ny,nc,false));
-                % add functions
-                obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
-                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
-                obj.prostU.add_function(g1, prost.function.sum_1d('ind_box01', 1/(2*obj.alpha1), -0.5, 1, 0, 0)); %l^1
-                obj.prostU.add_function(g2, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
-                
-                
+            % Add primal variables u and w
+            for i = 1:2*nc
+                obj.MMCsolver.addPrimalVar(obj.dimsLarge);
             end
             
+            % Build primal-dual problem
+            for i = 1:nc
+                
+                % Add L1-data
+                obj.MMCsolver.addTerm(L1dataTermOperator(1,dsOp,obj.imageSequenceSmall(:,:,i),i));
+                
+                % Add box constraint
+                obj.MMCsolver.addTerm(boxConstraint(0,1,obj.dimsLarge),i);
+            end
+            
+            for i = 1:nc-1
+                
+                % Develop warp operator and place in infconv
+                singleField = squeeze(obj.v(:,:,i,:));
+                Wi   = obj.tdist*warpinOperator(obj.dimsLarge,singleField);
+                Id     = speye(Nx*Ny);
+                
+                marker = sum(abs(Wi),2) == 0;
+                Wi(marker > 0,:) = 0;
+                Id(marker > 0,:) = 0; %#ok<SPRIX>
+                
+                Id2 = spdiags(1-double(marker),1,Nx*Ny,Nx*Ny);
+                disp(sum(sum(abs(Id-Id2))))
+                
+                if (mod(i,2)==1) && i
+                    % Add first infconv part 
+                    %  A1 = [ Dx  0  -Dx 0  ;
+                    %        Dy  0  -Dy 0  ;
+                    %        Wi -Id -Wi Id];
+                    flexA1 = {obj.kappa*Dx,zeroOperator(Nx*Ny),-obj.kappa*Dx,zeroOperator(Nx*Ny), ...
+                              obj.kappa*Dy,zeroOperator(Nx*Ny),-obj.kappa*Dy,zeroOperator(Nx*Ny), ...
+                              Wi,          -Id                ,-Wi,          Id                 };  
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,4,flexA1,[i,i+1,nc+i,nc+i+1])); 
+                    % Add second infconv part
+                    % A2 = [ Dx,  0;
+                    %        Dy,  0;
+                    %        Wi, -Id];
+                    flexA2 = {Dx,           zeroOperator(Nx*Ny), ...
+                              Dy,           zeroOperator(Nx*Ny), ...
+                              obj.kappa*Wi,-Id                };
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,2,flexA2,[nc+i,nc+i+1])); 
+                else
+                    % Add first infconv part 
+                    %  A1 = [ Dx  0  -Dx 0  ;
+                    %        Dy  0  -Dy 0  ;
+                    %        Wi -Id -Wi Id];
+                    flexA1 = {Dx,zeroOperator(Nx*Ny),-Dx,zeroOperator(Nx*Ny), ...
+                              Dy,zeroOperator(Nx*Ny),-Dy,zeroOperator(Nx*Ny), ...
+                              -Id,Wi                ,-Id,Wi                 };
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,4,flexA1,[i,i+1,nc+i,nc+i+1])); 
+                    % Add second infconv part
+                    % A2 = [ Dx,  0;
+                    %        Dy,  0;
+                    %        Wi, -Id];
+                    flexA2 = {Dx,zeroOperator(Nx*Ny), ...
+                              Dy,zeroOperator(Nx*Ny), ...
+                              -Id,Wi                };
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,2,flexA2,[nc+i,nc+i+1]));   
+                end
+                
+            end
         end
         %% calculate initial velocity fields on low resolution input images and scale them up to target resolution
         function init_v0(obj)
@@ -490,17 +445,20 @@ classdef jointSuperResolutionMinimal< handle
             end
         end
         
-        %% Call u solver in prost
+        %% Call u solver in flexBox
         function solveU(obj)
             
-            %call prost framework
+            %call flexBox framework
             %tic
-            prost.solve(obj.prostU, obj.opts.backend, obj.opts.opts);
+            obj.MMCsolver.runAlgorithm;
             %toc
-            obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge, obj.numFrames]);
-            if obj.kappa ~=1 && ~isnan(obj.kappa)
-                obj.w = reshape(obj.prostU.primal_vars{1,2}.val,[obj.dimsLarge, obj.numFrames]);
+            for i = 1:obj.numFrames
+                ui           = main.getPrimal(i);
+                wi           = main.getPrimal(obj.numFrames+i);
+                obj.u(:,:,i) = reshape(ui,obj.dimsLarge);
+                obj.w(:,:,i) = reshape(wi,obj.dimsLarge);
             end
+
             % show solution
             for j=1:obj.numFrames
                 if (obj.verbose > 1)
@@ -514,34 +472,34 @@ classdef jointSuperResolutionMinimal< handle
         end
         
         %% Construct u solver update
-        function updateProstU(obj)
+%        function updateProstU(obj)
             % Build new warping operators
             % Adjust parameters
             
             % shorting some notation
-            temp = obj.dimsLarge;
-            Ny = temp(1);
-            Nx = temp(2);
-            nc =  obj.numFrames;
+%             temp = obj.dimsLarge;
+%             Ny = temp(1);
+%             Nx = temp(2);
+%             nc =  obj.numFrames;
             
             % Call warp operator constructor
             %warpingOp = constructWarpFB(obj.v);
-            warpingOp = constructWarpFMB(obj.v);
+            %warpingOp = constructWarpFMB(obj.v);
             
-            disp(['warp energy on iteration: ',num2str(sum(abs(warpingOp*obj.u(:)))/numel(obj.u))])
-            
-            
-            if obj.verbose > 0
-                disp('warping operator updated');
-            end
+            %disp(['warp energy on iteration: ',num2str(sum(abs(warpingOp*obj.u(:)))/numel(obj.u))])
             
             
-            % update warping operator in prost
-            obj.prostU.data.linop{1,2}{1,4}{1} = [warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)];
-            obj.prostU.data.linop{1,3}{1,4}{1} = -[warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)];
-            obj.prostU.data.linop{1,4}{1,4}{1} = [obj.kappa*warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)];
+%             if obj.verbose > 0
+%                 disp('warping operator updated');
+%             end
             
-        end
+            
+%             % update warping operator in prost
+%             obj.prostU.data.linop{1,2}{1,4}{1} = [warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)];
+%             obj.prostU.data.linop{1,3}{1,4}{1} = -[warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)];
+%             obj.prostU.data.linop{1,4}{1,4}{1} = [obj.kappa*warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)];
+%             
+%        end
         
         %% Call v solver from motionEstimationGUI (which wraps flexBox)
         function solveV(obj)
@@ -614,13 +572,7 @@ classdef jointSuperResolutionMinimal< handle
             
             
             %Update operator in prostU object
-            DK = [];
-            for i = 1:obj.numFrames % this needs to be done smarter at some point
-                tmpOp = RepConvMtx(obj.k(:,:,i),obj.dimsLarge); %
-                tmpOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix*tmpOp;
-                DK    = blkdiag(DK,tmpOp);
-            end
-            obj.prostU.data.linop{1,1}{1,4}{1} = DK;
+            error('Update not implemented for fullFlexBox branch')
         end
         
         %% Recompute RGB image
@@ -701,7 +653,7 @@ classdef jointSuperResolutionMinimal< handle
                 
                 % update warping operators and parameters for u problem
                 if obj.currentIt ~= obj.numMainIt
-                    obj.updateProstU;
+                    error('update not implemented')
                 end
                 
                 % update blur kernels
