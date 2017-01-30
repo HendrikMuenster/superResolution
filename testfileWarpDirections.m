@@ -8,7 +8,7 @@ CruncherPath = matlab.desktop.editor.getActive;
 cd(fileparts(CruncherPath.Filename));
 
 %% Data properties
-datasetName = 'city';
+datasetName = 'walk_high';
 startFrame = 1;
 numFrames = 13;
 
@@ -64,9 +64,9 @@ for ii = 1:length(testCases)
 end
 %%
 
-figure(),plot(pPSNR'),legend('FB','F-I','I-B','FMB');title('PSNR values per frame');
+figure(),plot(pPSNR','-x'),legend('FB','F-I','I-B','FMB');title('PSNR values per frame');
 
-figure(),plot(pSSIM'),legend('FB','F-I','I-B','FMB');title('SSIM values per frame');
+figure(),plot(pSSIM','-x'),legend('FB','F-I','I-B','FMB');title('SSIM values per frame');
 
 drawnow
 %%

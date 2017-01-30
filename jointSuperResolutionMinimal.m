@@ -335,7 +335,7 @@ classdef jointSuperResolutionMinimal< handle
                         uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
                     end
                 elseif strcmp(obj.testCase,'FMB')
-                    uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                    uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
                 elseif strcmp(obj.testCase,'F-I')
                     uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
                 elseif strcmp(obj.testCase,'I-B')
