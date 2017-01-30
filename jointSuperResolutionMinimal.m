@@ -43,8 +43,11 @@ classdef jointSuperResolutionMinimal< handle
         beta               % weights for regularizer of v
         kappa              % regularizer adjustment
         tdist              % time distance heuristic
-        kOpts              % k regularizer and backend options
-        kernelsize         % targeted kernel size for each k_i
+        
+        % kernel estimation (deprecated)
+        kOpts
+        kernelsize
+
         verbose
         numMainIt;         % Number of total iterations
         interpMethod       % Interpolation method
@@ -166,8 +169,9 @@ classdef jointSuperResolutionMinimal< handle
             %prostK                                 % main solver class for k subproblem
             % will be constructed in init_u, init_v and init_k calls
             
-                                                              'sigma0', 0.01);  % prost backend options
+                                                             
             obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 100, ...
+                                                  'sigma0', 0.01);  % prost backend options
             obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 5, 'verbose', true);  % prost structure options
             obj.numMainIt = 1;                      % Number of total outer iterations
             obj.opts.nsize = 0;                     % radius of local boundary, choose 0 for no local boundaries
@@ -222,6 +226,8 @@ classdef jointSuperResolutionMinimal< handle
             % Call sampling function to construct matrix representation
             dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
             
+            % Use blur kernel:
+            dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
             
             % initialize block format
             if obj.numMainIt   ~= 1
@@ -241,14 +247,19 @@ classdef jointSuperResolutionMinimal< handle
             nc =  obj.numFrames;
             
             % Call warp operator constructor
-            if strcmp(obj.testCase,'FB')
-                warpingOp = constructWarpFB(obj.v);
-            elseif strcmp(obj.testCase,'FMB')
-                warpingOp = constructWarpFMB(obj.v);
-            elseif strcmp(obj.testCase,'F-I')
-                warpingOp = constructWarpFF(obj.v,'F-I');
-            elseif strcmp(obj.testCase,'I-B')
-                warpingOp = constructWarpFF(obj.v,'I-F');
+            if isscalar(obj.warpOp)
+                if strcmp(obj.testCase,'FB')
+                    warpingOp = constructWarpFB(obj.v);
+                elseif strcmp(obj.testCase,'FMB')
+                    warpingOp = constructWarpFMB(obj.v);
+                elseif strcmp(obj.testCase,'F-I')
+                    warpingOp = constructWarpFF(obj.v,'F-I');
+                elseif strcmp(obj.testCase,'I-B')
+                    warpingOp = constructWarpFF(obj.v,'I-F');
+                end
+                obj.warpOp = warpingOp;
+            else
+                warpingOp = obj.warpOp;
             end
             
             if obj.verbose > 0
@@ -335,6 +346,7 @@ classdef jointSuperResolutionMinimal< handle
                 end
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1/2, 1, 1, 0, 0)); %l^{2,1}
+            
             elseif isnan(obj.kappa)    % Do standard TV
                 
                 g1 = prost.variable(Nx*Ny*nc);

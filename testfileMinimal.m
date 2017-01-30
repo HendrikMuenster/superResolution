@@ -47,23 +47,24 @@ mainSuper.kappa         = 0.5;                 % regularization pendulum
 
   
 % Downsampling details
-mainSuper.interpMethod = 'bicubic';
+mainSuper.interpMethod = 'bilinear';
 mainSuper.interpAA     = true;              % The antialiasing switch increases the scaling of the kernel to prevent aliasing
 
-if strcmp(mainSuper.interpMethod,'custom')
-    gsig = 1.2;
-    width = 7;
-    %kernel = @(x) (sin(pi*x) .* sin(pi*x/4) + eps) ./ ((pi^2 * x.^2 / 4) + eps).*exp(-x.^2/(2*gsig^2))./sqrt(2*pi*gsig^2); % Lancz/Gauss Kernel
-    xpre = -width:0.001:width;
-    ypre = conv(double((abs(xpre)<=2))/4,exp(-xpre.^2/gsig),'same'); %  Box/Gauss kernel (lookup table)
-    kernel = @(x) ypre(arrayfun(@(xi) find(xpre==xi,1),x));    
-    %kernel = @(x) double(abs(x)<=0.5); % this is bilinear with no aa
-    %kernel = @(x) double(abs(x)<=2)/4; % this is the old average kernel
-    figure(1), plot(-width:0.01:width,kernel(-width:0.01:width)); title('interpolation kernel'), drawnow
-    
-    mainSuper.interpKernel = {kernel,width};
-end
+% if strcmp(mainSuper.interpMethod,'custom')
+%     gsig = 1.2;
+%     width = 7;
+%     %kernel = @(x) (sin(pi*x) .* sin(pi*x/4) + eps) ./ ((pi^2 * x.^2 / 4) + eps).*exp(-x.^2/(2*gsig^2))./sqrt(2*pi*gsig^2); % Lancz/Gauss Kernel
+%     xpre = -width:0.001:width;
+%     ypre = conv(double((abs(xpre)<=2))/4,exp(-xpre.^2/gsig),'same'); %  Box/Gauss kernel (lookup table)
+%     kernel = @(x) ypre(arrayfun(@(xi) find(xpre==xi,1),x));    
+%     %kernel = @(x) double(abs(x)<=0.5); % this is bilinear with no aa
+%     %kernel = @(x) double(abs(x)<=2)/4; % this is the old average kernel
+%     figure(1), plot(-width:0.01:width,kernel(-width:0.01:width)); title('interpolation kernel'), drawnow
+%     
+%     mainSuper.interpKernel = {kernel,width};
+% end
 
+mainSuper.k = fspecial('gaussian',11,1.2);
             
 
 %% INIT flow field and solvers
