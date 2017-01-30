@@ -47,11 +47,18 @@ classdef jointSuperResolutionMinimal< handle
         kernelsize         % targeted kernel size for each k_i
         verbose
         numMainIt;         % Number of total iterations
+        interpMethod       % Interpolation method
+        interpKernel       % Custom interpolation kernel
+        interpAA           % Interpolation AA
+        
+        % Extra Input
+        warpOp             % A given warping operator (deactivates flow computation !)
         
         % Book-keeping
         currentIt          % notifies solvers of current iteration
         colorflag          % Is set to 1 for color videos to enable YCbCr treatment
         testCase
+        flowCompute        % no flow needs to be computed if it is given by mechanics or previous runs
     end
     
     methods
@@ -122,25 +129,58 @@ classdef jointSuperResolutionMinimal< handle
                 obj.gtV = 0;
             end
             
+            % Given flow field:
+            if exist('flowField','var')
+                if ~isscalar(flowField)
+                    obj.v = flowField;
+                    obj.flowCompute = 0;
+                else
+                    obj.flowCompute = 1;
+                end
+            else
+                obj.flowCompute = 1;
+            end
+            
+            % Verbose options
+            if (exist('verbose','var'))
+                obj.verbose = verbose;
+            else
+                obj.verbose = 1;
+            end
+            
+            % Given warp operator
+            if (exist('warpOp','var'))
+                if ~isscalar(warpOp)
+                    obj.warpOp = warpOp;
+                    obj.flowCompute = 0;
+                else
+                    obj.warpOp = 0;
+                end
+            else
+                obj.warpOp = 0;
+            end
+            
             % Solver options
             %prostU                                 % main solver class for u subproblem
             %mainV                                  % main solver class for v subproblem
             %prostK                                 % main solver class for k subproblem
             % will be constructed in init_u, init_v and init_k calls
             
-            obj.numMainIt = 2;                      % Number of total outer iterations
-            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 100, ...
                                                               'sigma0', 0.01);  % prost backend options
+            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 100, ...
             obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 5, 'verbose', true);  % prost structure options
+            obj.numMainIt = 1;                      % Number of total outer iterations
             obj.opts.nsize = 0;                     % radius of local boundary, choose 0 for no local boundaries
             obj.opts.offset = 0.1;                  % offset of local boundary
             
             obj.alpha1 = 0.01;                      % weights for regularizer of u
             obj.alpha2 = 0.01;                      % weights for regularizer of u
-            obj.beta = 0.1;                         % weights for regularizer of v
-            obj.kappa = 0.1;
-            obj.tdist = 1;
+            obj.beta   = 0.1;                         % weights for regularizer of v
+            obj.kappa  = 0.5;
+            obj.tdist  = 1;
             
+            
+            % kernel estimation
             obj.kOpts.backend = prost.backend.pdhg(...
                 'tau0', 100, ...
                 'sigma0', 0.01, ...
@@ -148,19 +188,22 @@ classdef jointSuperResolutionMinimal< handle
             obj.kOpts.opts = prost.options('max_iters', 2500, ...
                 'num_cback_calls', 5, ...
                 'verbose', true);                   % prost structure options for k
-            obj.kernelsize = 7;                     % standard kernel size
+            obj.kernelsize = 11;                     % standard kernel size
             obj.kOpts.delta = 0.05;                 % l2 penalty on k
-            sigmaval = 1.2;
-            %sigmaval = 1/16*(obj.factor^2-1); %Innerhofer/Pock:
-            obj.kOpts.initKx =  exp(-(-3:3).^2 / sigmaval);  % initial separable kernel (x) - will be normalized later
-            obj.kOpts.initKy =  exp(-(-3:3).^2 / sigmaval);  % initial separable kernel (y) - will be normalized later
             
+            %             % starting input kernel
+            %             sigmaval = 1/4*sqrt(obj.factor^2-1); %Innerhofer/Pock:
+            %             obj.k0 =   exp(-(-3:3).^2 / sigmaval)'*exp(-(-3:3).^2 / sigmaval);
+            %             obj.k0 = obj.k0/sum(sum(obj.k0));
+            %
+            %             obj.lowPass = 'Gaussian';
+            %             obj.lowPassParam = sigmaval;
             
-            if (exist('verbose','var'))
-                obj.verbose = verbose;
-            else
-                obj.verbose = 1;
-            end
+            % standard interpolation parameters
+            obj.interpMethod  = 'bicubic-0';     % Interpolation method
+            obj.interpKernel  = [];               % Custom interpolation kernel
+            obj.interpAA      = false  ;          % Interpolation AA
+            
             
             % Book-keeping
             obj.currentIt = 1;         % notifies solvers of current iteration
@@ -173,18 +216,22 @@ classdef jointSuperResolutionMinimal< handle
             %%%% Create operators
             
             % create downsampling operator
-            dsOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
+            %dsOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
+            %dsOp =dsOp*RepConvMtx(obj.k0,obj.dimsLarge); % This is often terrible
             
-            % and incorporate blur:
-            dsOp =dsOp*createSparseMatrixFrom1dSeperableKernel( ...
-                obj.kOpts.initKx,obj.kOpts.initKy, obj.dimsLarge(1),obj.dimsLarge(2), 'Neumann');
+            % Call sampling function to construct matrix representation
+            dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
+            
+            
             % initialize block format
             if obj.numMainIt   ~= 1
                 downsamplingOp = kron(speye(obj.numFrames),dsOp);
             else
                 downsamplingOp_kron = dsOp;
             end
-            
+            if obj.verbose > 0
+                disp('downsampling operator constructed');
+            end
             % short some notation
             temp = obj.dimsSmall;
             ny=temp(1); nx=temp(2);
@@ -219,7 +266,6 @@ classdef jointSuperResolutionMinimal< handle
             gradPix = sum(abs(GradOp*u_up(:)))/numel(u_up);
             disp(['gradient energy on bicubic (per pixel): ',num2str(gradPix)])
             obj.tdist  = gradPix/warpPix;
-            
             
             %%%% initialize prost variables and operators
             
@@ -266,6 +312,7 @@ classdef jointSuperResolutionMinimal< handle
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1, 1, 1, 0, 0)); %l^{2,1}
                 obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
+                
             elseif obj.kappa == 1    % Simplify if no infimal convolution is necessary
                 
                 % Generate min-max problem structure
@@ -316,9 +363,9 @@ classdef jointSuperResolutionMinimal< handle
             end
             
         end
-        
         %% calculate initial velocity fields on low resolution input images and scale them up to target resolution
         function init_v0(obj)
+            
             if (obj.verbose > 0)
                 disp('Calculating initial velocity fields')
             end
@@ -401,6 +448,10 @@ classdef jointSuperResolutionMinimal< handle
         %% collect inits and validate
         function init(obj)
             
+            if obj.verbose > 0
+                disp('Initialization...')
+            end
+            
             % validate and set variables
             
             % update sizes for non-standard factor
@@ -409,18 +460,56 @@ classdef jointSuperResolutionMinimal< handle
             % initialize u,w,v,k
             obj.u = zeros([obj.dimsLarge,obj.numFrames]);
             obj.w = zeros([obj.dimsLarge,obj.numFrames]);
-            obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
+            if obj.flowCompute
+                obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
+            end
             obj.k = zeros(obj.kernelsize^2*obj.numFrames,1);
             
-            % Normalize input kernels
-            obj.kOpts.initKx =  obj.kOpts.initKx/sum(obj.kOpts.initKx);
-            obj.kOpts.initKy =  obj.kOpts.initKy/sum(obj.kOpts.initKy);
             
             
             % Call actual initialization methods
-            obj.init_v0;
+            if obj.flowCompute
+                obj.init_v0;
+            end
+            
+            
+            
+            %             % Construct initial k
+            %             kr = floor(obj.kernelsize/2); % kernel radius
+            %
+            %             if strcmp(obj.lowPass,'Gaussian')
+            %                 sigmaval = obj.lowPassParam;
+            %                 obj.k0 =   exp(-(-kr:kr).^2 / sigmaval)'*exp(-(-kr:kr).^2 / sigmaval);
+            %                 if sigmaval == 0
+            %                     obj.k0 = zeros(obj.kernelsize);
+            %                     obj.k0(kr+1,kr+1) = 1;
+            %                 end
+            %             elseif strcmp(obj.lowPass,'truncSinc')
+            %
+            %                 h = obj.lowPassParam; % I have no idea how to do this right
+            %                 krh = h*(-kr:kr);
+            %                 kdim = sinc(krh);
+            %                 obj.k0 = kdim'*kdim;
+            %             elseif strcmp(obj.lowPass,'Lanczos')
+            %                 a = obj.lowPassParam;
+            %                 h = 1/obj.factor; % I have no idea how to do this right
+            %                 krh = h*(-kr:kr);
+            %                 k_dim1 = sinc(krh).*sinc(krh/a).*(abs(krh)<a);
+            %                 obj.k0 = k_dim1'*k_dim1;
+            %             else
+            %                 error('invalid low pass filter specified');
+            %             end
+            %             % always normalize (but should I ?)
+            %             obj.k0 = obj.k0/sum(obj.k0(:));
+            
+            % Init u
             obj.init_u;
-            obj.init_k;
+            
+            
+            % Init a solver for k only if necessary
+            if obj.numMainIt > 1
+                obj.init_k;
+            end
             
             if (obj.verbose > 0)
                 disp('Initialization of u, v and k solvers finished');
@@ -571,7 +660,7 @@ classdef jointSuperResolutionMinimal< handle
                 imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
             end
             obj.result1 = imageSequenceUp;
-            if obj.kappa ~= 1
+            if obj.kappa ~= 1 && ~isnan(obj.kappa)
                 imageSequenceUp = zeros(obj.dimsLarge(1),obj.dimsLarge(2),3,obj.numFrames);
                 for i = 1:obj.numFrames
                     imageSequenceUp(:,:,1,i) = obj.u(:,:,i)-obj.w(:,:,i);                            % actually computed Y
