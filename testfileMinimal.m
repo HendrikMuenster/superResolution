@@ -8,7 +8,7 @@ cd(fileparts(CruncherPath.Filename));
 %% Data properties
 datasetName = 'city';
 startFrame = 1;
-numFrames = 5;
+numFrames = 13;
 
 %% Load Video and code
 dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
@@ -30,10 +30,10 @@ mainSuper.numMainIt     = 1;                   % number of total outer iteration
 mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
 
 % Problem parameters
-mainSuper.alpha1        = 0.01;                % regU weights
-mainSuper.alpha2        = 0.01;                % regU weights
+mainSuper.alpha1        = 0.01;                % warp weight
+mainSuper.alpha2        = 0.01;                % TV weight
 mainSuper.beta          = 0.1;                 % regU weights
-mainSuper.kappa         = 0.5;                % regularization pendulum value
+mainSuper.kappa         = 0.5;                % regularization pendulum value, set to NaN for standard TV, or to 1 for isoWarp-TV
 mainSuper.kOpts.delta   = 0.5;                 % blur Tikh penalties
                   
 

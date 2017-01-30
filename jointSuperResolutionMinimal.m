@@ -51,6 +51,7 @@ classdef jointSuperResolutionMinimal< handle
         % Book-keeping
         currentIt          % notifies solvers of current iteration
         colorflag          % Is set to 1 for color videos to enable YCbCr treatment
+        testCase
     end
     
     methods
@@ -88,6 +89,12 @@ classdef jointSuperResolutionMinimal< handle
                 obj.datasetName = '';
             end
             
+            if (exist('testCase','var'))
+                obj.testCase = testCase; %#ok<*CPROPLC>
+            else
+                obj.testCase = 'FB';
+            end
+            
             % Problem Structure
             
             obj.factor    = 4;
@@ -122,8 +129,9 @@ classdef jointSuperResolutionMinimal< handle
             % will be constructed in init_u, init_v and init_k calls
             
             obj.numMainIt = 2;                      % Number of total outer iterations
-            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd');  % prost backend options
-            obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 12, 'verbose', true);  % prost structure options
+            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 100, ...
+                                                              'sigma0', 0.01);  % prost backend options
+            obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 5, 'verbose', true);  % prost structure options
             obj.opts.nsize = 0;                     % radius of local boundary, choose 0 for no local boundaries
             obj.opts.offset = 0.1;                  % offset of local boundary
             
@@ -185,42 +193,17 @@ classdef jointSuperResolutionMinimal< handle
             Nx = temp(2);
             nc =  obj.numFrames;
             
-            spX = []; spY = []; spAlloc = []; % nc-1 dynamic reallocations are needed
-            % create warping operator from given v
-            for i = 1:nc-1
-                % extract flow field
-                singleField = squeeze(obj.v(:,:,i,:));
-                
-                % create warping operator forward and backward
-                warp = warpingOperator(obj.dimsLarge,singleField);
-                idOp = speye(Nx*Ny);
-                
-                % find out of range warps in each of the operators and set the corresponding line in the other operator also to zero
-                marker = sum(abs(warp),2) == 0;
-                warp(marker > 0,:) = 0;
-                idOp(marker > 0,:) = 0; %#ok<SPRIX> % this is still the most painless way
-                
-                if (mod(i,2)==1)
-                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))']; %#ok<*AGROW>
-                    spY = [spY;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
-                    spAlloc = [spAlloc;-full(diag(idOp))];
-                    
-                    [sp_x,sp_y,walloc] = find(warp);
-                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
-                    spY = [spY;(Nx*Ny*i+1)+sp_y-1];
-                    spAlloc = [spAlloc;walloc];
-                else
-                    [sp_x,sp_y,walloc] = find(warp);
-                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
-                    spY = [spY;(Nx*Ny*(i-1)+1)+sp_y-1];
-                    spAlloc = [spAlloc;walloc];
-                    
-                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
-                    spY = [spY;((Nx*Ny*i+1):(Nx*Ny*(i+1)))'];
-                    spAlloc = [spAlloc;-full(diag(idOp))];
-                end
+            % Call warp operator constructor
+            if strcmp(obj.testCase,'FB')
+                warpingOp = constructWarpFB(obj.v);
+            elseif strcmp(obj.testCase,'FMB')
+                warpingOp = constructWarpFMB(obj.v);
+            elseif strcmp(obj.testCase,'F-I')
+                warpingOp = constructWarpFF(obj.v,'F-I');
+            elseif strcmp(obj.testCase,'I-B')
+                warpingOp = constructWarpFF(obj.v,'I-F');
             end
-            warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*nc,Nx*Ny*nc);
+            
             if obj.verbose > 0
                 disp('warp operator constructed');
             end
@@ -242,6 +225,7 @@ classdef jointSuperResolutionMinimal< handle
             
             % Primal- Core Variable:
             u_vec = prost.variable(Nx*Ny*nc);
+            u_vec.val = u_up(:);
             w_vec = prost.variable(Nx*Ny*nc);
             p = prost.variable(nx*ny*nc);
             g1 = prost.variable(3*Nx*Ny*nc);
@@ -256,7 +240,7 @@ classdef jointSuperResolutionMinimal< handle
             lmin = localMin(:)-offsetLoc; lmax = localMax(:)+offsetLoc;
             
             % Connect variables to primal-dual problem
-            if obj.kappa ~= 1
+            if obj.kappa ~= 1 && ~isnan(obj.kappa)
                 
                 % Generate min-max problem structure
                 obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2} );
@@ -282,7 +266,7 @@ classdef jointSuperResolutionMinimal< handle
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1, 1, 1, 0, 0)); %l^{2,1}
                 obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
-            else    % Simplify if no infimal convolution is necessary
+            elseif obj.kappa == 1    % Simplify if no infimal convolution is necessary
                 
                 % Generate min-max problem structure
                 obj.prostU = prost.min_max_problem( {u_vec}, {p,g1} );
@@ -291,7 +275,7 @@ classdef jointSuperResolutionMinimal< handle
                 if obj.numMainIt ~= 1
                     obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
                 else
-                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse_kron_id(downsamplingOp_kron,obj.numFrames));
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.id_kron_sparse(downsamplingOp_kron,obj.numFrames));
                 end
                 
                 % Add regularizer dual
@@ -304,7 +288,33 @@ classdef jointSuperResolutionMinimal< handle
                 end
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1/2, 1, 1, 0, 0)); %l^{2,1}
+            elseif isnan(obj.kappa)    % Do standard TV
+                
+                g1 = prost.variable(Nx*Ny*nc);
+                g2 = prost.variable(2*Nx*Ny*nc);
+                
+                % Generate min-max problem structure
+                obj.prostU = prost.min_max_problem( {u_vec}, {p,g1,g2} );
+                
+                % Initialize full downsampling implictely as kron(id(numFrames,D) if possible
+                if obj.numMainIt ~= 1
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.sparse(downsamplingOp));
+                else
+                    obj.prostU.add_dual_pair(u_vec, p, prost.block.id_kron_sparse(downsamplingOp_kron,obj.numFrames));
+                end
+                
+                % Add regularizer dual
+                obj.prostU.add_dual_pair(u_vec, g1, prost.block.sparse(warpingOp*obj.tdist)); %*tdist
+                obj.prostU.add_dual_pair(u_vec, g2, prost.block.gradient2d(Nx, Ny,nc,false));
+                % add functions
+                obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.prostU.add_function(g1, prost.function.sum_1d('ind_box01', 1/(2*obj.alpha1), -0.5, 1, 0, 0)); %l^1
+                obj.prostU.add_function(g2, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
+                
+                
             end
+            
         end
         
         %% calculate initial velocity fields on low resolution input images and scale them up to target resolution
@@ -315,11 +325,23 @@ classdef jointSuperResolutionMinimal< handle
             
             
             for j=1:obj.numFrames-1
-                if (mod(j,2)==1)%calculate backward flow: v s.t. u_2(x+v)=u_1(x)
+                
+                
+                % Select correct flow direction
+                if strcmp(obj.testCase,'FB')
+                    if (mod(j,2)==1)%calculate backward flow: v s.t. u_2(x+v)=u_1(x)
+                        uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
+                    else            %calculate backward flow: v s.t. u_1(x+v)=u_2(x)
+                        uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                    end
+                elseif strcmp(obj.testCase,'FMB')
                     uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
-                else            %calculate backward flow: v s.t. u_1(x+v)=u_2(x)
+                elseif strcmp(obj.testCase,'F-I')
                     uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                elseif strcmp(obj.testCase,'I-B')
+                    uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
                 end
+                
                 
                 motionEstimatorLow = motionEstimatorClass(uTmpSmall,1e-6,obj.beta,'doGradientConstancy',1);
                 motionEstimatorLow.verbose = 0;
@@ -413,7 +435,7 @@ classdef jointSuperResolutionMinimal< handle
             prost.solve(obj.prostU, obj.opts.backend, obj.opts.opts);
             %toc
             obj.u = reshape(obj.prostU.primal_vars{1,1}.val,[obj.dimsLarge, obj.numFrames]);
-            if obj.kappa ~=1
+            if obj.kappa ~=1 && ~isnan(obj.kappa)
                 obj.w = reshape(obj.prostU.primal_vars{1,2}.val,[obj.dimsLarge, obj.numFrames]);
             end
             % show solution
@@ -439,43 +461,9 @@ classdef jointSuperResolutionMinimal< handle
             Nx = temp(2);
             nc =  obj.numFrames;
             
-            spX = []; spY = []; spAlloc = [];
-            % create warping operator from given v
-            for i = 1:nc-1
-                % extract flow field
-                singleField = squeeze(obj.v(:,:,i,:));
-                
-                % create warping operator forward and backward
-                warp = warpingOperator(obj.dimsLarge,singleField);
-                idOp = speye(Nx*Ny);
-                
-                % find out of range warps in each of the operators and set the corresponding line in the other operator also to zero
-                marker = sum(abs(warp),2) == 0;
-                warp(marker > 0,:) = 0;
-                idOp(marker > 0,:) = 0; %#ok<SPRIX>
-                
-                if (mod(i,2)==1)
-                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))']; %#ok<*AGROW>
-                    spY = [spY;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
-                    spAlloc = [spAlloc;-full(diag(idOp))];
-                    
-                    [sp_x,sp_y,walloc] = find(warp);
-                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
-                    spY = [spY;(Nx*Ny*i+1)+sp_y-1];
-                    spAlloc = [spAlloc;walloc];
-                else
-                    [sp_x,sp_y,walloc] = find(warp);
-                    spX = [spX;(Nx*Ny*(i-1)+1)+sp_x-1];
-                    spY = [spY;(Nx*Ny*(i-1)+1)+sp_y-1];
-                    spAlloc = [spAlloc;walloc];
-                    
-                    spX = [spX;((Nx*Ny*(i-1)+1):(Nx*Ny*i))'];
-                    spY = [spY;((Nx*Ny*i+1):(Nx*Ny*(i+1)))'];
-                    spAlloc = [spAlloc;-full(diag(idOp))];
-                end
-            end
-            warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*nc,Nx*Ny*nc);
-            
+            % Call warp operator constructor
+            %warpingOp = constructWarpFB(obj.v);
+            warpingOp = constructWarpFMB(obj.v);
             
             disp(['warp energy on iteration: ',num2str(sum(abs(warpingOp*obj.u(:)))/numel(obj.u))])
             
@@ -608,7 +596,7 @@ classdef jointSuperResolutionMinimal< handle
                     psnrErr = psnr(obj.result2(20:end-20,20:end-20,:,:),obj.gtU(20:end-20,20:end-20,:,1:obj.numFrames));
                     
                     for j = 1:3 % SSIM computation takes a while ...
-                        ssimErr(j) = ssim(squeeze(obj.result2(20:end-20,20:end-20,j,:)),squeeze(obj.gtU(20:end-20,20:end-20,j,1:obj.numFrames)));
+                        ssimErr(j) = ssim(squeeze(obj.result2(20:end-20,20:end-20,j,:)),squeeze(obj.gtU(20:end-20,20:end-20,j,1:obj.numFrames))); %#ok<AGROW>
                     end
                     ssimErr = mean(ssimErr); % mean over all color channels
                 else
