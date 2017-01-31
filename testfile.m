@@ -20,7 +20,7 @@ addpath(genpath(cd)); % only load paths if data location was error free
 
 
 %% Load precomputed flow field if existing
-if exist([dataFolder,filesep,datasetName,'_flow.mat'],'file') && 1
+if exist([dataFolder,filesep,datasetName,'_flow.mat'],'file') && 0
     
     load([dataFolder,filesep,datasetName,'_flow.mat']);
     figure(2), imagesc(flowToColorV2(squeeze(v(:,:,cslice,:)))); axis image; drawnow
@@ -28,8 +28,6 @@ else
     v = 0;
     warpOp = 0;
 end
-
-
 
 %% Init algorithm class thing
 mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'flowField',v,'warpOp',warpOp);
