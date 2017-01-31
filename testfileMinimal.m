@@ -2,15 +2,16 @@
 % Video Super Resolution
 
 clearvars;
-CruncherPath = matlab.desktop.editor.getActive;
-cd(fileparts(CruncherPath.Filename));
 
 %% Data properties
 datasetName = 'city';
+
 startFrame = 1;
 numFrames = 13;
 cslice = ceil(numFrames/2);
-factor = 4;                 % magnification factor
+
+
+factor = 4;                         % magnification factor
 
 %% Load Video and code
 dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
@@ -20,6 +21,7 @@ addpath(genpath(cd)); % only load paths if data location was error free
 
 %% Load precomputed flow field if existing
 if exist([dataFolder,filesep,datasetName,'_flow.mat'],'file') && 1
+    
     load([dataFolder,filesep,datasetName,'_flow.mat']);
     figure(2), imagesc(flowToColorV2(squeeze(v(:,:,cslice,:)))); axis image; drawnow
 else
@@ -59,33 +61,32 @@ end
 % "Motion" blur:
 mainSuper.k = fspecial('gaussian',7,sqrt(0.6));
 
-%% Plot kernel comparisons
-h = 0.0001;
-intervalThing = -width:h:width;
-sigSTD = sqrt(1.2/2);
-gaussThing = @(x) 1./sqrt(2*pi*sigSTD^2).*exp(-x.^2 / 2/sigSTD^2);
-figure(1), plot(intervalThing,conv(gaussThing(intervalThing),kernel(intervalThing),'same')*h);
-hold on, plot(intervalThing,gaussThing(intervalThing))
-plot(intervalThing,kernel(intervalThing)),
-
-sigSTD = 1.6;
-gaussThing = @(x) 1./sqrt(2*pi*sigSTD^2).*exp(-x.^2 / 2/sigSTD^2);
-plot(intervalThing,gaussThing(intervalThing));
-legend('Our kernel','Gaussian sigma=0.776 ','Block sampling','Gaussian sigma=1.6 ')
+% %% Plot kernel comparisons
+% h = 0.0001;
+% intervalThing = -width:h:width;
+% sigSTD = sqrt(1.2/2);
+% gaussThing = @(x) 1./sqrt(2*pi*sigSTD^2).*exp(-x.^2 / 2/sigSTD^2);
+% figure(1), plot(intervalThing,conv(gaussThing(intervalThing),kernel(intervalThing),'same')*h);
+% hold on, plot(intervalThing,gaussThing(intervalThing))
+% plot(intervalThing,kernel(intervalThing)),
+% 
+% sigSTD = 1.6;
+% gaussThing = @(x) 1./sqrt(2*pi*sigSTD^2).*exp(-x.^2 / 2/sigSTD^2);
+% plot(intervalThing,gaussThing(intervalThing));
+% legend('Our kernel','Gaussian sigma=0.776 ','Block sampling','Gaussian sigma=1.6 ')
 
 
 %% INIT flow field and solvers
 mainSuper.init;
 
 
-%% Solve joint problem by alternating through u, v and k subproblems
+%% Solve super resolution problem
 
 mainSuper.run;
 
 
 %% Show error margin
 
-%[psnrErr,ssimErr, psnrV] = mainSuper.calculateErrors;
 outImage = mainSuper.result1(20:end-20,20:end-20,:,ceil(numFrames/2));
 psnrErr = psnr(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ceil(numFrames/2)));
 ssimErr = ssim(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ceil(numFrames/2)));

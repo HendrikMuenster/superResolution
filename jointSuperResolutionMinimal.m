@@ -174,8 +174,6 @@ classdef jointSuperResolutionMinimal< handle
                                                   'sigma0', 0.01);  % prost backend options
             obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 5, 'verbose', true);  % prost structure options
             obj.numMainIt = 1;                      % Number of total outer iterations
-            obj.opts.nsize = 0;                     % radius of local boundary, choose 0 for no local boundaries
-            obj.opts.offset = 0.1;                  % offset of local boundary
             
             obj.alpha1 = 0.01;                      % weights for regularizer of u
             obj.alpha2 = 0.01;                      % weights for regularizer of u
@@ -194,14 +192,6 @@ classdef jointSuperResolutionMinimal< handle
                 'verbose', true);                   % prost structure options for k
             obj.kernelsize = 11;                     % standard kernel size
             obj.kOpts.delta = 0.05;                 % l2 penalty on k
-            
-            %             % starting input kernel
-            %             sigmaval = 1/4*sqrt(obj.factor^2-1); %Innerhofer/Pock:
-            %             obj.k0 =   exp(-(-3:3).^2 / sigmaval)'*exp(-(-3:3).^2 / sigmaval);
-            %             obj.k0 = obj.k0/sum(sum(obj.k0));
-            %
-            %             obj.lowPass = 'Gaussian';
-            %             obj.lowPassParam = sigmaval;
             
             % standard interpolation parameters
             obj.interpMethod  = 'bicubic-0';     % Interpolation method
@@ -518,8 +508,16 @@ classdef jointSuperResolutionMinimal< handle
             nc =  obj.numFrames;
             
             % Call warp operator constructor
-            %warpingOp = constructWarpFB(obj.v);
-            warpingOp = constructWarpFMB(obj.v);
+            if strcmp(obj.testCase,'FB')
+                warpingOp = constructWarpFB(obj.v);
+            elseif strcmp(obj.testCase,'FMB')
+                warpingOp = constructWarpFMB(obj.v);
+            elseif strcmp(obj.testCase,'F-I')
+                warpingOp = constructWarpFF(obj.v,'F-I');
+            elseif strcmp(obj.testCase,'I-B')
+                warpingOp = constructWarpFF(obj.v,'I-F');
+            end
+            obj.warpOp = warpingOp;
             
             disp(['warp energy on iteration: ',num2str(sum(abs(warpingOp*obj.u(:)))/numel(obj.u))])
             
@@ -711,11 +709,12 @@ classdef jointSuperResolutionMinimal< handle
                     centralSlice = ceil(obj.numFrames/2);
                     outImage = obj.result1(20:end-20,20:end-20,:,centralSlice);
                     psnrVal = psnr(outImage,obj.gtU(20:end-20,20:end-20,:,centralSlice)) %#ok<NOPRT>
-                    imwrite(outImage,['../outFolder/',obj.datasetName,'/','8_SuperResolutionOurs_P_final_it_',num2str(i),'_PSNR_',num2str(psnrVal,4),'.tif']);
-                    outImage = obj.result2(20:end-20,20:end-20,:,centralSlice);
-                    psnrVal = psnr(outImage,obj.gtU(20:end-20,20:end-20,:,centralSlice));
-                    imwrite(obj.result2(20:end-20,20:end-20,:,centralSlice),['../outFolder/',obj.datasetName,'/SRvariations/','8_SuperResolutionOurs_P_final_2_its_u-w',num2str(psnrVal,4),'.tif']);
-                    WriteToVideo(obj.result1,['../outFolder/',obj.datasetName,'/videos/','8_SuperResolutionOurs_P_final_2_its_.avi']);
+                    %imwrite(outImage,['../outFolder/',obj.datasetName,'/','8_SuperResolutionOurs_P_final_it_',num2str(i),'_PSNR_',num2str(psnrVal,4),'.tif']);
+                    %outImage = obj.result2(20:end-20,20:end-20,:,centralSlice);
+                    %psnrVal = psnr(outImage,obj.gtU(20:end-20,20:end-20,:,centralSlice));
+                    %imwrite(obj.result2(20:end-20,20:end-20,:,centralSlice),['../outFolder/',obj.datasetName,'/SRvariations/','8_SuperResolutionOurs_P_final_2_its_u-w',num2str(psnrVal,4),'.tif']);
+                    %WriteToVideo(obj.result1,['../outFolder/',obj.datasetName,'/videos/','8_SuperResolutionOurs_P_final_2_its_.avi']);
+                    figure,imshow(outImage),title(psnrVal);
                 end
             end
             
