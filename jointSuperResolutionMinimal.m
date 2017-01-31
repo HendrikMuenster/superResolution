@@ -221,7 +221,6 @@ classdef jointSuperResolutionMinimal< handle
             
             % Call sampling function to construct matrix representation
             dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
-            %dsOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
             
             % Use blur kernel:
             if ~isempty(obj.k) || isscalar(obj.k)
@@ -466,19 +465,13 @@ classdef jointSuperResolutionMinimal< handle
             end
             %obj.k = zeros(obj.kernelsize^2*obj.numFrames,1);
             
-            
-            
             % Call actual initialization methods
             if obj.flowCompute
                 obj.init_v0;
             end
             
-            
-           
-            
             % Init u
             obj.init_u;
-            
             
             % Init a solver for k only if necessary
             if obj.numMainIt > 1

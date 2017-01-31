@@ -74,8 +74,6 @@ Sy = Dim1Matrix(inputDims(1),targetDims(1),method,kernel,antialiasing)';
 % Call kronecker product to compute output matrix
 S = kron(Sx',Sy);
 
-
-
 end
 
 %=====================================================================
