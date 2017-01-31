@@ -32,18 +32,26 @@ for ii = 1:length(testCases)
     %% Set variables
     
     % Procedure
-    mainSuper.factor        = 4;                   % magnification factor, remember to change
+    mainSuper.factor        = factor;              % magnification factor
     mainSuper.numMainIt     = 1;                   % number of total outer iterations
     mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
     
     % Problem parameters
-    mainSuper.alpha1        = 0.01;                % warp weight
-    mainSuper.alpha2        = 0.01;                % TV weight
-    mainSuper.beta          = 0.1;                 % regU weights
-    mainSuper.kappa         = 0.5;                 % regularization pendulum value, set to NaN for standard TV, or to 1 for isoWarp-TV
-    mainSuper.kOpts.delta   = 0.5;                 % blur Tikh penalties
+    mainSuper.alpha1        = 0.01;                % temporal weight
+    mainSuper.alpha2        = 0.01;                % spatial weight
+    mainSuper.beta          = 0.1;                 % flow field complexity
+    mainSuper.kappa         = 0.5;                 % regularization pendulum
     
     
+    % Downsampling details
+    mainSuper.interpMethod = 'custom';
+    mainSuper.interpAA     = false;
+    width = 7;
+    kernel = @(x) double(abs(x)<=2)/factor; % this is the old average kernel
+    mainSuper.interpKernel = {kernel,width};
+
+    % "Motion" blur:
+    mainSuper.k = fspecial('gaussian',7,sqrt(0.6));
     
     %% INIT flow fields and solve
     mainSuper.init;

@@ -1,9 +1,13 @@
-classdef jointSuperResolutionMinimal< handle
-    %JOINTSUPERRESOLUTION
-    % solve a joint super-resolution and optical flow problem, estimating
-    % the optical flow 'v' of an unknown high resolution video 'u' from a low
-    % resolution video 'imageSequenceSmall' while jointly recovering the
-    % high resolution video and the motion/downsample blur kernels k_i
+classdef MultiframeMotionCoupling< handle
+    %MultiframeMotionCoupling
+    % Couple all frames successively and solve the super resolution problem
+    %
+    %
+    %
+    %
+    %
+    %
+
     %% Class properties:
     properties
         
@@ -66,7 +70,7 @@ classdef jointSuperResolutionMinimal< handle
     
     methods
         %% Initialize object
-        function obj = jointSuperResolutionMinimal(imageSequenceSmall,varargin)
+        function obj = MultiframeMotionCoupling(imageSequenceSmall,varargin)
             vararginParser;
             
             %%% Property standards:
