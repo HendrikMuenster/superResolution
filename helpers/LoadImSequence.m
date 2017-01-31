@@ -21,7 +21,7 @@ fileStruct = [dir('*.jpg');dir('*.png');dir('*.tif')];
 imtest = im2double(imread(fileStruct(startFrame).name));
 [xLarge,yLarge,color] = size(imtest);
 
-if strcmp(beReasonable,'ok');
+if strcmp(beReasonable,'ok')
     factest = 0.5;
     while xLarge > 1280 || yLarge > 1280
         xLarge = xLarge*factest;

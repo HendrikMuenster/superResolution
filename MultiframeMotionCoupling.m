@@ -1,9 +1,13 @@
-classdef jointSuperResolutionMinimal< handle
-    %JOINTSUPERRESOLUTION
-    % solve a joint super-resolution and optical flow problem, estimating
-    % the optical flow 'v' of an unknown high resolution video 'u' from a low
-    % resolution video 'imageSequenceSmall' while jointly recovering the
-    % high resolution video and the motion/downsample blur kernels k_i
+classdef MultiframeMotionCoupling< handle
+    %MultiframeMotionCoupling
+    % Couple all frames successively and solve the super resolution problem
+    %
+    %
+    %
+    %
+    %
+    %
+
     %% Class properties:
     properties
         
@@ -43,19 +47,30 @@ classdef jointSuperResolutionMinimal< handle
         beta               % weights for regularizer of v
         kappa              % regularizer adjustment
         tdist              % time distance heuristic
-        kOpts              % k regularizer and backend options
-        kernelsize         % targeted kernel size for each k_i
+        
+        % kernel estimation (deprecated)
+        kOpts
+        kernelsize
+
         verbose
         numMainIt;         % Number of total iterations
+        interpMethod       % Interpolation method
+        interpKernel       % Custom interpolation kernel
+        interpAA           % Interpolation AA
+        
+        % Extra Input
+        warpOp             % A given warping operator (deactivates flow computation !)
         
         % Book-keeping
         currentIt          % notifies solvers of current iteration
         colorflag          % Is set to 1 for color videos to enable YCbCr treatment
+        testCase
+        flowCompute        % no flow needs to be computed if it is given by mechanics or previous runs
     end
     
     methods
         %% Initialize object
-        function obj = jointSuperResolutionMinimal(imageSequenceSmall,varargin)
+        function obj = MultiframeMotionCoupling(imageSequenceSmall,varargin)
             vararginParser;
             
             %%% Property standards:
@@ -88,6 +103,12 @@ classdef jointSuperResolutionMinimal< handle
                 obj.datasetName = '';
             end
             
+            if (exist('testCase','var'))
+                obj.testCase = testCase; %#ok<*CPROPLC>
+            else
+                obj.testCase = 'FB';
+            end
+            
             % Problem Structure
             
             obj.factor    = 4;
@@ -115,25 +136,57 @@ classdef jointSuperResolutionMinimal< handle
                 obj.gtV = 0;
             end
             
+            % Given flow field:
+            if exist('flowField','var')
+                if ~isscalar(flowField)
+                    obj.v = flowField;
+                    obj.flowCompute = 0;
+                else
+                    obj.flowCompute = 1;
+                end
+            else
+                obj.flowCompute = 1;
+            end
+            
+            % Verbose options
+            if (exist('verbose','var'))
+                obj.verbose = verbose;
+            else
+                obj.verbose = 1;
+            end
+            
+            % Given warp operator
+            if (exist('warpOp','var'))
+                if ~isscalar(warpOp)
+                    obj.warpOp = warpOp;
+                    obj.flowCompute = 0;
+                else
+                    obj.warpOp = 0;
+                end
+            else
+                obj.warpOp = 0;
+            end
+            
             % Solver options
             %prostU                                 % main solver class for u subproblem
             %mainV                                  % main solver class for v subproblem
             %prostK                                 % main solver class for k subproblem
             % will be constructed in init_u, init_v and init_k calls
             
-            obj.numMainIt = 2;                      % Number of total outer iterations
+                                                             
             obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 100, ...
-                                                              'sigma0', 0.01);  % prost backend options
+                                                  'sigma0', 0.01);  % prost backend options
             obj.opts.opts = prost.options('max_iters', 12000, 'num_cback_calls', 5, 'verbose', true);  % prost structure options
-            obj.opts.nsize = 0;                     % radius of local boundary, choose 0 for no local boundaries
-            obj.opts.offset = 0.1;                  % offset of local boundary
+            obj.numMainIt = 1;                      % Number of total outer iterations
             
             obj.alpha1 = 0.01;                      % weights for regularizer of u
             obj.alpha2 = 0.01;                      % weights for regularizer of u
-            obj.beta = 0.1;                         % weights for regularizer of v
-            obj.kappa = 0.1;
-            obj.tdist = 1;
+            obj.beta   = 0.1;                         % weights for regularizer of v
+            obj.kappa  = 0.5;
+            obj.tdist  = 1;
             
+            
+            % kernel estimation
             obj.kOpts.backend = prost.backend.pdhg(...
                 'tau0', 100, ...
                 'sigma0', 0.01, ...
@@ -141,19 +194,14 @@ classdef jointSuperResolutionMinimal< handle
             obj.kOpts.opts = prost.options('max_iters', 2500, ...
                 'num_cback_calls', 5, ...
                 'verbose', true);                   % prost structure options for k
-            obj.kernelsize = 7;                     % standard kernel size
+            obj.kernelsize = 11;                     % standard kernel size
             obj.kOpts.delta = 0.05;                 % l2 penalty on k
-            sigmaval = 1.2;
-            %sigmaval = 1/16*(obj.factor^2-1); %Innerhofer/Pock:
-            obj.kOpts.initKx =  exp(-(-3:3).^2 / sigmaval);  % initial separable kernel (x) - will be normalized later
-            obj.kOpts.initKy =  exp(-(-3:3).^2 / sigmaval);  % initial separable kernel (y) - will be normalized later
             
+            % standard interpolation parameters
+            obj.interpMethod  = 'bicubic-0';     % Interpolation method
+            obj.interpKernel  = [];               % Custom interpolation kernel
+            obj.interpAA      = false  ;          % Interpolation AA
             
-            if (exist('verbose','var'))
-                obj.verbose = verbose;
-            else
-                obj.verbose = 1;
-            end
             
             % Book-keeping
             obj.currentIt = 1;         % notifies solvers of current iteration
@@ -165,19 +213,23 @@ classdef jointSuperResolutionMinimal< handle
         function init_u(obj)
             %%%% Create operators
             
-            % create downsampling operator
-            dsOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
+            % Call sampling function to construct matrix representation
+            dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
             
-            % and incorporate blur:
-            dsOp =dsOp*createSparseMatrixFrom1dSeperableKernel( ...
-                obj.kOpts.initKx,obj.kOpts.initKy, obj.dimsLarge(1),obj.dimsLarge(2), 'Neumann');
+            % Use blur kernel:
+            if ~isempty(obj.k) || isscalar(obj.k)
+                dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
+            end
+            
             % initialize block format
             if obj.numMainIt   ~= 1
                 downsamplingOp = kron(speye(obj.numFrames),dsOp);
             else
                 downsamplingOp_kron = dsOp;
             end
-            
+            if obj.verbose > 0
+                disp('downsampling operator constructed');
+            end
             % short some notation
             temp = obj.dimsSmall;
             ny=temp(1); nx=temp(2);
@@ -187,10 +239,22 @@ classdef jointSuperResolutionMinimal< handle
             nc =  obj.numFrames;
             
             % Call warp operator constructor
-             warpingOp = constructWarpFB(obj.v);
- %            warpingOp = constructWarpFMB(obj.v);
- %           warpingOp = constructWarpFF(obj.v,'I-F');
- 
+            if isscalar(obj.warpOp)
+                if strcmp(obj.testCase,'FB')
+                    warpingOp = constructWarpFB(obj.v);
+                elseif strcmp(obj.testCase,'FMB')
+                    warpingOp = constructWarpFMB(obj.v);
+                elseif strcmp(obj.testCase,'F-I')
+                    warpingOp = constructWarpFF(obj.v,'F-I');
+                elseif strcmp(obj.testCase,'I-B')
+                    warpingOp = constructWarpFF(obj.v,'I-F');
+                end
+                obj.warpOp = warpingOp;
+            else
+                warpingOp = obj.warpOp;
+                
+            end
+            
             if obj.verbose > 0
                 disp('warp operator constructed');
             end
@@ -207,7 +271,6 @@ classdef jointSuperResolutionMinimal< handle
             disp(['gradient energy on bicubic (per pixel): ',num2str(gradPix)])
             obj.tdist  = gradPix/warpPix;
             
-            
             %%%% initialize prost variables and operators
             
             % Primal- Core Variable:
@@ -217,14 +280,6 @@ classdef jointSuperResolutionMinimal< handle
             p = prost.variable(nx*ny*nc);
             g1 = prost.variable(3*Nx*Ny*nc);
             g2 = prost.variable(3*Nx*Ny*nc);
-            
-            % Construct local boundaries
-            nsize = obj.opts.nsize;
-            offsetLoc = obj.opts.offset;
-            localNhood = strel('disk',nsize);
-            localMin = imerode(u_up,localNhood);
-            localMax = imdilate(u_up,localNhood);
-            lmin = localMin(:)-offsetLoc; lmax = localMax(:)+offsetLoc;
             
             % Connect variables to primal-dual problem
             if obj.kappa ~= 1 && ~isnan(obj.kappa)
@@ -245,14 +300,12 @@ classdef jointSuperResolutionMinimal< handle
                 obj.prostU.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp*obj.tdist;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
                 obj.prostU.add_dual_pair(w_vec, g2, prost.block.sparse([obj.kappa*warpingOp*obj.tdist;spmat_gradient2d(Nx, Ny,nc)]));
                 % Add functions
-                if obj.opts.nsize ~= 0
-                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1./(lmax-lmin),lmin./(lmax-lmin),1,0,0));
-                else
-                    obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
-                end
+
+                obj.prostU.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1, 1, 1, 0, 0)); %l^{2,1}
                 obj.prostU.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha2, 1, 1, 0, 0)); %l^{2,1}
+                
             elseif obj.kappa == 1    % Simplify if no infimal convolution is necessary
                 
                 % Generate min-max problem structure
@@ -275,6 +328,7 @@ classdef jointSuperResolutionMinimal< handle
                 end
                 obj.prostU.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.prostU.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha1/2, 1, 1, 0, 0)); %l^{2,1}
+            
             elseif isnan(obj.kappa)    % Do standard TV
                 
                 g1 = prost.variable(Nx*Ny*nc);
@@ -303,9 +357,9 @@ classdef jointSuperResolutionMinimal< handle
             end
             
         end
-        
         %% calculate initial velocity fields on low resolution input images and scale them up to target resolution
         function init_v0(obj)
+            
             if (obj.verbose > 0)
                 disp('Calculating initial velocity fields')
             end
@@ -313,12 +367,21 @@ classdef jointSuperResolutionMinimal< handle
             
             for j=1:obj.numFrames-1
                 
-                if (mod(j,2)==1)%calculate backward flow: v s.t. u_2(x+v)=u_1(x)
+                
+                % Select correct flow direction
+                if strcmp(obj.testCase,'FB')
+                    if (mod(j,2)==1)%calculate backward flow: v s.t. u_2(x+v)=u_1(x)
+                        uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
+                    else            %calculate backward flow: v s.t. u_1(x+v)=u_2(x)
+                        uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                    end
+                elseif strcmp(obj.testCase,'FMB')
                     uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
-                else            %calculate backward flow: v s.t. u_1(x+v)=u_2(x)
+                elseif strcmp(obj.testCase,'F-I')
                     uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                elseif strcmp(obj.testCase,'I-B')
+                    uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
                 end
-               %uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
                 
                 
                 motionEstimatorLow = motionEstimatorClass(uTmpSmall,1e-6,obj.beta,'doGradientConstancy',1);
@@ -379,6 +442,10 @@ classdef jointSuperResolutionMinimal< handle
         %% collect inits and validate
         function init(obj)
             
+            if obj.verbose > 0
+                disp('Initialization...')
+            end
+            
             % validate and set variables
             
             % update sizes for non-standard factor
@@ -387,18 +454,23 @@ classdef jointSuperResolutionMinimal< handle
             % initialize u,w,v,k
             obj.u = zeros([obj.dimsLarge,obj.numFrames]);
             obj.w = zeros([obj.dimsLarge,obj.numFrames]);
-            obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
-            obj.k = zeros(obj.kernelsize^2*obj.numFrames,1);
-            
-            % Normalize input kernels
-            obj.kOpts.initKx =  obj.kOpts.initKx/sum(obj.kOpts.initKx);
-            obj.kOpts.initKy =  obj.kOpts.initKy/sum(obj.kOpts.initKy);
-            
+            if obj.flowCompute
+                obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
+            end
+            %obj.k = zeros(obj.kernelsize^2*obj.numFrames,1);
             
             % Call actual initialization methods
-            obj.init_v0;
+            if obj.flowCompute
+                obj.init_v0;
+            end
+            
+            % Init u
             obj.init_u;
-            obj.init_k;
+            
+            % Init a solver for k only if necessary
+            if obj.numMainIt > 1
+                obj.init_k;
+            end
             
             if (obj.verbose > 0)
                 disp('Initialization of u, v and k solvers finished');
@@ -440,8 +512,16 @@ classdef jointSuperResolutionMinimal< handle
             nc =  obj.numFrames;
             
             % Call warp operator constructor
-            %warpingOp = constructWarpFB(obj.v);
-            warpingOp = constructWarpFMB(obj.v);
+            if strcmp(obj.testCase,'FB')
+                warpingOp = constructWarpFB(obj.v);
+            elseif strcmp(obj.testCase,'FMB')
+                warpingOp = constructWarpFMB(obj.v);
+            elseif strcmp(obj.testCase,'F-I')
+                warpingOp = constructWarpFF(obj.v,'F-I');
+            elseif strcmp(obj.testCase,'I-B')
+                warpingOp = constructWarpFF(obj.v,'I-F');
+            end
+            obj.warpOp = warpingOp;
             
             disp(['warp energy on iteration: ',num2str(sum(abs(warpingOp*obj.u(:)))/numel(obj.u))])
             
@@ -549,7 +629,7 @@ classdef jointSuperResolutionMinimal< handle
                 imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
             end
             obj.result1 = imageSequenceUp;
-            if obj.kappa ~= 1
+            if obj.kappa ~= 1 && ~isnan(obj.kappa)
                 imageSequenceUp = zeros(obj.dimsLarge(1),obj.dimsLarge(2),3,obj.numFrames);
                 for i = 1:obj.numFrames
                     imageSequenceUp(:,:,1,i) = obj.u(:,:,i)-obj.w(:,:,i);                            % actually computed Y
@@ -633,11 +713,12 @@ classdef jointSuperResolutionMinimal< handle
                     centralSlice = ceil(obj.numFrames/2);
                     outImage = obj.result1(20:end-20,20:end-20,:,centralSlice);
                     psnrVal = psnr(outImage,obj.gtU(20:end-20,20:end-20,:,centralSlice)) %#ok<NOPRT>
-                    imwrite(outImage,['../outFolder/',obj.datasetName,'/','8_SuperResolutionOurs_P_final_it_',num2str(i),'_PSNR_',num2str(psnrVal,4),'.tif']);
-                    outImage = obj.result2(20:end-20,20:end-20,:,centralSlice);
-                    psnrVal = psnr(outImage,obj.gtU(20:end-20,20:end-20,:,centralSlice));
-                    imwrite(obj.result2(20:end-20,20:end-20,:,centralSlice),['../outFolder/',obj.datasetName,'/SRvariations/','8_SuperResolutionOurs_P_final_2_its_u-w',num2str(psnrVal,4),'.tif']);
-                    WriteToVideo(obj.result1,['../outFolder/',obj.datasetName,'/videos/','8_SuperResolutionOurs_P_final_2_its_.avi']);
+                    %imwrite(outImage,['../outFolder/',obj.datasetName,'/','8_SuperResolutionOurs_P_final_it_',num2str(i),'_PSNR_',num2str(psnrVal,4),'.tif']);
+                    %outImage = obj.result2(20:end-20,20:end-20,:,centralSlice);
+                    %psnrVal = psnr(outImage,obj.gtU(20:end-20,20:end-20,:,centralSlice));
+                    %imwrite(obj.result2(20:end-20,20:end-20,:,centralSlice),['../outFolder/',obj.datasetName,'/SRvariations/','8_SuperResolutionOurs_P_final_2_its_u-w',num2str(psnrVal,4),'.tif']);
+                    %WriteToVideo(obj.result1,['../outFolder/',obj.datasetName,'/videos/','8_SuperResolutionOurs_P_final_2_its_.avi']);
+                    figure,imshow(outImage),title(psnrVal);
                 end
             end
             
