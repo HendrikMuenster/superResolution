@@ -52,7 +52,7 @@ mainSuper.kappa         = 0.5;                 % regularization pendulum
   
 % Downsampling details
 mainSuper.interpMethod = 'custom';
-mainSuper.interpAA     = false;              % The antialiasing switch is complicated in 2017a
+mainSuper.interpAA     = false;                % The antialiasing switch is complicated in 2017a
 kernel = @(x) double(abs(x)<=2)/4;
 width  = 7;
 mainSuper.interpKernel = {kernel,width};
@@ -87,23 +87,8 @@ if mainSuper.verbose > 0
                             ', regV is Huber with beta = ',num2str(mainSuper.beta), ...
                             ' - all for ',num2str(mainSuper.numMainIt),' iterations']);
     set(vid.Parent, 'Position',get(0, 'Screensize'));
-    
-%     vid = implay(mainSuper.result2,2);  % persists through close all ( \_('')_/ ) - use this to compare visual quality to previous iterations
-%     set(vid.Parent, 'Name', ['u-w of InfAddTV with kappa = ',num2str(mainSuper.kappa),...
-%                             ' and alphas ',num2str(mainSuper.alpha1),', ',num2str(mainSuper.alpha2),...
-%                             ', regV is Huber with beta = ',num2str(mainSuper.beta), ...
-%                             ' - all for ',num2str(mainSuper.numMainIt),' iterations']);
-%     set(vid.Parent, 'Position',get(0, 'Screensize'));
 end
-%%
-% %% write central image to file
-% fileNaming = ['results',filesep,datasetName,'_TVinfAdd_u -  alpha', ...
-%     num2str(mainSuper.alpha1,4),', kappa',num2str(mainSuper.kappa,4),', its ',num2str(mainSuper.numMainIt),'.png'];
-% imwrite(mainSuper.result1(:,:,:,cslice),fileNaming);
-% %% write central image to file
-% fileNaming = ['results',filesep,datasetName,'_TVinfAdd_u-w -  alpha1', ...
-%     num2str(mainSuper.alpha1,4),', alpha2',num2str(mainSuper.alpha2,4),', its ',num2str(mainSuper.numMainIt),'.png'];
-% imwrite(mainSuper.result2(:,:,:,cslice),fileNaming);
+
 
 %% 
 disp('---------------------------------------------------------------------')

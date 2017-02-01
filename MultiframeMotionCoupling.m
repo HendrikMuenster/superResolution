@@ -235,7 +235,7 @@ classdef MultiframeMotionCoupling< handle
                                
                 singleField = squeeze(obj.v(:,:,i,:));
                 Wi   = warpingOperator(obj.dimsLarge,singleField);
-                Id   = speye(Nx*Ny);
+                Id   = speye(N);
                 
                 % Remove out-of range warps
                 marker = sum(abs(Wi),2) == 0;
@@ -243,7 +243,7 @@ classdef MultiframeMotionCoupling< handle
                 Id(marker > 0,:) = 0; %#ok<SPRIX>
 
                 warps{i} = Wi;  %#ok<AGROW>
-                Ids {i}  = Id;  %#ok<AGROW>
+                Ids{i}   = Id;  %#ok<AGROW>
             end            
            
             % Build gradient matrices
@@ -265,7 +265,7 @@ classdef MultiframeMotionCoupling< handle
                 uj = u_up(:,:,i+1);
                 Du(i) = sum(abs(Dx*ui(:))+abs(Dy*ui(:)));
                 if mod(i,2) == 1
-                    Wu(i) = sum(abs(-Ids{i}*ui(:)+warps{i+1}*uj(:)));
+                    Wu(i) = sum(abs(-Ids{i}*ui(:)+warps{i}*uj(:)));
                 else
                     Wu(i) = sum(abs(warps{i}*ui(:)-Ids{i}*uj(:)));
                 end
