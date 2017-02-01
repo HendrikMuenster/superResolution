@@ -51,22 +51,14 @@ mainSuper.kappa         = 0.5;                 % regularization pendulum
 
   
 % Downsampling details
-mainSuper.interpMethod = 'bilinear';
-mainSuper.interpAA     = false;              % The antialiasing switch increases the scaling of the kernel to prevent aliasing
-
-% Custom kernel, if necessary:
-% if strcmp(mainSuper.interpMethod,'custom')
-%     kernel = @(x) (sin(pi*x) .* sin(pi*x/4) + eps) ./ ((pi^2 * x.^2 / 4) + eps).*exp(-x.^2/(2*gsig^2))./sqrt(2*pi*gsig^2); % Lancz/Gauss Kernel
-%     %kernel = @(x) double(abs(x)<=0.5); % this is bilinear with no aa
-%     
-%     width = 7;
-%     figure(1), plot(-width:0.01:width,kernel(-width:0.01:width)); title('interpolation kernel'), drawnow
-%     
-%     mainSuper.interpKernel = {kernel,width};
-% end
+mainSuper.interpMethod = 'custom';
+mainSuper.interpAA     = false;              % The antialiasing switch is complicated in 2017a
+kernel = @(x) double(abs(x)<=2)/4;
+width  = 7;
+mainSuper.interpKernel = {kernel,width};
 
 % "Motion" blur
-mainSuper.k = fspecial('gaussian',7,1.2^2); 
+mainSuper.k = fspecial('gaussian',7,sqrt(0.6)); 
 
             
 

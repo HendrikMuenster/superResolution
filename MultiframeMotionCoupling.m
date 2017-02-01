@@ -207,37 +207,84 @@ classdef MultiframeMotionCoupling< handle
         
         %% create flexBox object for u
         function init_u(obj)
-            %%%% Create operators
             
-            % Call sampling function to construct matrix representation
-            dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
-            %dsOp = superpixelOperator(obj.dimsSmall,obj.factor).matrix;
-            
-            % Use blur kernel:
-            if ~isempty(obj.k) || isscalar(obj.k)
-                dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
-            end
-            
-            if obj.verbose > 0
-                disp('downsampling operator constructed');
-            end
-            % short some notation
+            % shorten some notation
             temp = obj.dimsLarge;
             Ny = temp(1);
             Nx = temp(2);
             N = Nx*Ny;
             nc =  obj.numFrames;
+            
+            
+            %%%% Create operators
+            
+            % Build downsampling matrix
+            dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
+            
+            % Add blur matrix
+            if ~isempty(obj.k) || isscalar(obj.k)
+                dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
+            end
+            
+            if obj.verbose > 0
+                disp('Downsampling operator constructed');
+            end
+            
+            % Construct warp operators and reduced identities
+            for i = 1:nc-1
+                               
+                singleField = squeeze(obj.v(:,:,i,:));
+                Wi   = warpingOperator(obj.dimsLarge,singleField);
+                Id   = speye(Nx*Ny);
+                
+                % Remove out-of range warps
+                marker = sum(abs(Wi),2) == 0;
+                Wi(marker > 0,:) = 0;
+                Id(marker > 0,:) = 0; %#ok<SPRIX>
 
+                warps{i} = Wi;  %#ok<AGROW>
+                Ids {i}  = Id;  %#ok<AGROW>
+            end            
+           
             % Build gradient matrices
             D = spmat_gradient2d(Nx, Ny,1);
             Dx = D(1:Nx*Ny,:); Dy = D(Nx*Ny+1:end,:);
             
+            
+            %%%% Compute adaptive parameter h
+            
+            % Compute bicubic estimate 
+            u_up = zeros([obj.dimsLarge,nc]);
+            for i = 1:nc
+                u_up(:,:,i) = imresize(obj.imageSequenceSmall(:,:,i),obj.factor,'bicubic');
+            end
+            % Accumulate estimates 
+            Du = zeros(nc,1);Wu = zeros(nc,1);
+            for i = 1:nc-1
+                ui = u_up(:,:,i);
+                uj = u_up(:,:,i+1);
+                Du(i) = sum(abs(Dx*ui(:))+abs(Dy*ui(:)));
+                if mod(i,2) == 1
+                    Wu(i) = sum(abs(-Ids{i}*ui(:)+warps{i+1}*uj(:)));
+                else
+                    Wu(i) = sum(abs(warps{i}*ui(:)-Ids{i}*uj(:)));
+                end
+            end
+            ui = u_up(:,:,nc);
+            Du(nc) = sum(abs(Dx*ui(:))+abs(Dy*ui(:)));
+            gradPix = sum(Du)/N/nc; warpPix = sum(Wu)/N/nc;
+            obj.tdist = gradPix/warpPix;
+            if obj.verbose > 0
+                disp(['Warp energy on bicubic (per pixel)    : ', num2str(warpPix)]);
+                disp(['Gradient energy on bicubic (per pixel): ', num2str(gradPix)]);
+            end
+            
             %%%% initialize flexBox solver
             
             obj.MMCsolver = flexBox;
-            obj.MMCsolver.params.tol = 1e-3;
+            obj.MMCsolver.params.tol = 1e-6;
             obj.MMCsolver.params.tryCPP = 1;
-            obj.MMCsolver.params.verbose = 2;
+            obj.MMCsolver.params.verbose = obj.verbose;
             obj.MMCsolver.params.maxIt = 10000;
             
             % Add primal variables u and w
@@ -256,67 +303,66 @@ classdef MultiframeMotionCoupling< handle
                 obj.MMCsolver.addTerm(boxConstraint(0,1,[N,1]),i);
             end
             
-            
-            u_up = zeros([obj.dimsLarge,nc]);
-            u_up(:,:,1) = imresize(obj.imageSequenceSmall(:,:,1),obj.factor);
-            
-            % Build infconv regularizer
+            % Build first nc-1 infconv regularizer
             for i = 1:nc-1
-                
-                % Develop warp operator and place in infconv
-                singleField = squeeze(obj.v(:,:,i,:));
-                Wi   = warpingOperator(obj.dimsLarge,singleField);
-                Id     = speye(Nx*Ny);
-                
-                % Remove out-of range warps
-                marker = sum(abs(Wi),2) == 0;
-                Wi(marker > 0,:) = 0;
-                Id(marker > 0,:) = 0; %#ok<SPRIX>
-                u_up(:,:,i+1) = imresize(obj.imageSequenceSmall(:,:,i+1),obj.factor);
+
+                % Get warp and identity
+                Wi = warps{i}*obj.tdist;
+                Id = Ids{i} *obj.tdist;
                 
                 if (mod(i,2)==1)
-                    
-                    % Find h (now per image!)
-                    u_i     = u_up(:,:,i);
-                    u_i1    = u_up(:,:,i+1);
-                    warpPix = sum(abs(Wi*u_i(:)-u_i1(:)))/numel(u_i);
-                    gradPix = sum(abs([Dx;Dy]*u_i(:)))/numel(u_i);
-                    obj.tdist(i) = gradPix/max(warpPix,eps);
-                    Wi      = obj.tdist(i)*Wi;
-                    
                     % Add first infconv part
-                    flexA1 = {obj.kappa*Dx,zeroOperator(Nx*Ny),-obj.kappa*Dx,zeroOperator(Nx*Ny), ...
-                        obj.kappa*Dy,zeroOperator(Nx*Ny),-obj.kappa*Dy,zeroOperator(Nx*Ny), ...
-                        Wi,          -Id                ,-Wi,          Id                 };
+                    flexA1 = {obj.kappa*Dx,zeroOperator(N),-obj.kappa*Dx,zeroOperator(N), ...
+                              obj.kappa*Dy,zeroOperator(N),-obj.kappa*Dy,zeroOperator(N), ...
+                                -Id       ,Wi             ,Id          ,-Wi                   };
+                            
                     obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,4,flexA1),[i,i+1,nc+i,nc+i+1]);
                     % Add second infconv part
-                    flexA2 = {Dx,           zeroOperator(Nx*Ny), ...
-                        Dy,           zeroOperator(Nx*Ny), ...
-                        obj.kappa*Wi,-Id                };
+                    flexA2 = {Dx           ,zeroOperator(N), ...
+                              Dy           ,zeroOperator(N), ...
+                              -obj.kappa*Id,obj.kappa*Wi                     };
+                    
                     obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,2,flexA2),[nc+i,nc+i+1]);
                 else
-                    
-                    % Find h (now per image!)
-                    u_i     = u_up(:,:,i);
-                    u_i1    = u_up(:,:,i+1);
-                    warpPix = sum(abs(-u_i(:)+Wi*u_i1(:)))/numel(u_i);
-                    gradPix = sum(abs([Dx;Dy]*u_i(:)))/numel(u_i);
-                    obj.tdist(i) = gradPix/max(warpPix,eps);
-                    Wi      = obj.tdist(i)*Wi;
-                    
                     % Add first infconv part
-                    flexA1 = {Dx,zeroOperator(Nx*Ny),-Dx,zeroOperator(Nx*Ny), ...
-                        Dy,zeroOperator(Nx*Ny),-Dy,zeroOperator(Nx*Ny), ...
-                        -Id,Wi                ,-Id,Wi                 };
+                    flexA1 = {obj.kappa*Dx    ,zeroOperator(N),-obj.kappa*Dx,   zeroOperator(N), ...
+                              obj.kappa*Dy    ,zeroOperator(N),-obj.kappa*Dy,   zeroOperator(N), ...
+                              Wi              ,-Id            ,-Wi          ,   Id                   };
+                         
                     obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,4,flexA1),[i,i+1,nc+i,nc+i+1]);
                     % Add second infconv part
-                    flexA2 = {Dx,zeroOperator(Nx*Ny), ...
-                        Dy,zeroOperator(Nx*Ny), ...
-                        -Id,Wi                };
+                    flexA2 = {Dx            ,zeroOperator(N), ...
+                              Dy            ,zeroOperator(N), ...
+                              obj.kappa*Wi  ,-obj.kappa*Id       };
+                    
                     obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,2,flexA2),[nc+i,nc+i+1]);
                 end
                 
+               
+                
             end
+            % Build last infconv regularizer
+            flexA1 = {obj.kappa*Dx,-obj.kappa*Dx, ...
+                      obj.kappa*Dy,-obj.kappa*Dy      };
+            
+            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,2,flexA1),[i,nc+i]);
+            flexA2 = {Dx, ...
+                      Dy      };
+            
+            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,1,flexA2),nc+i);
+                    
+                  
+                    
+           %%%% Set bicubic estimation as start vector
+           for i = 1:nc
+               ui = u_up(:,:,i);
+               obj.MMCsolver.x{1,i} = ui(:);
+           end
+           
+           if obj.verbose > 0 
+               disp('FlexBox object initialized');
+           end
+            
         end
         %% calculate initial velocity fields on low resolution input images and scale them up to target resolution
         function init_v0(obj)
@@ -333,7 +379,7 @@ classdef MultiframeMotionCoupling< handle
                 if strcmp(obj.testCase,'FB')
                     if (mod(j,2)==1)%calculate backward flow: v s.t. u_2(x+v)=u_1(x)
                         uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
-                    else            %calculate backward flow: v s.t. u_1(x+v)=u_2(x)
+                    else            %calculate forward(?) flow: v s.t. u_1(x+v)=u_2(x)
                         uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
                     end
                 elseif strcmp(obj.testCase,'FMB')
