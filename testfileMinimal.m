@@ -1,6 +1,8 @@
 %
 % Video Super Resolution
 
+addpath(genpath(cd));
+
 clearvars;
 CruncherPath = matlab.desktop.editor.getActive;
 cd(fileparts(CruncherPath.Filename));
@@ -8,12 +10,13 @@ cd(fileparts(CruncherPath.Filename));
 %% Data properties
 datasetName = 'city';
 startFrame = 1;
-numFrames = 13;
+numFrames = 3;
 cslice = ceil(numFrames/2);
 factor = 4;                 % magnification factor
 
 %% Load Video and code
 dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
+dataFolder = 'C:\Users\Hendrik\Dropbox\Uni\Projects\2016 - SuperResolutionMunich\superResolutionData\';
 [imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor);    
 addpath(genpath(cd)); % only load paths if data location was error free
 
