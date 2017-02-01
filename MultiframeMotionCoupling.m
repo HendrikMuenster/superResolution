@@ -1,4 +1,4 @@
-classdef jointSuperResolutionMinimal< handle
+classdef MultiframeMotionCoupling< handle
     %JOINTSUPERRESOLUTION
     % solve a joint super-resolution and optical flow problem, estimating
     % the optical flow 'v' of an unknown high resolution video 'u' from a low
@@ -65,7 +65,7 @@ classdef jointSuperResolutionMinimal< handle
     
     methods
         %% Initialize object
-        function obj = jointSuperResolutionMinimal(imageSequenceSmall,varargin)
+        function obj = MultiframeMotionCoupling(imageSequenceSmall,varargin)
             vararginParser;
             
             %%% Property standards:
@@ -225,6 +225,7 @@ classdef jointSuperResolutionMinimal< handle
             temp = obj.dimsLarge;
             Ny = temp(1);
             Nx = temp(2);
+            N = Nx*Ny;
             nc =  obj.numFrames;
 
             % Build gradient matrices
@@ -234,24 +235,25 @@ classdef jointSuperResolutionMinimal< handle
             %%%% initialize flexBox solver
             
             obj.MMCsolver = flexBox;
-            obj.MMCsolver.params.tol = 1e-6;
+            obj.MMCsolver.params.tol = 1e-3;
             obj.MMCsolver.params.tryCPP = 1;
             obj.MMCsolver.params.verbose = 2;
             obj.MMCsolver.params.maxIt = 10000;
             
             % Add primal variables u and w
             for i = 1:2*nc
-                obj.MMCsolver.addPrimalVar(obj.dimsLarge);
+                obj.MMCsolver.addPrimalVar([N,1]);
             end
             
             % Build data terms
             for i = 1:nc
                 
                 % Add L1-data
-                obj.MMCsolver.addTerm(L1dataTermOperator(1,dsOp,obj.imageSequenceSmall(:,:,i)),i);
+                f_i = obj.imageSequenceSmall(:,:,i);
+                obj.MMCsolver.addTerm(L1dataTermOperator(1,dsOp,f_i(:)),i);
                 
                 % Add box constraint
-                obj.MMCsolver.addTerm(boxConstraint(0,1,obj.dimsLarge),i);
+                obj.MMCsolver.addTerm(boxConstraint(0,1,[N,1]),i);
             end
             
             
@@ -450,8 +452,8 @@ classdef jointSuperResolutionMinimal< handle
             obj.MMCsolver.runAlgorithm;
             %toc
             for i = 1:obj.numFrames
-                ui           = main.getPrimal(i);
-                wi           = main.getPrimal(obj.numFrames+i);
+                ui           = obj.MMCsolver.getPrimal(i);
+                wi           = obj.MMCsolver.getPrimal(obj.numFrames+i);
                 obj.u(:,:,i) = reshape(ui,obj.dimsLarge);
                 obj.w(:,:,i) = reshape(wi,obj.dimsLarge);
             end
