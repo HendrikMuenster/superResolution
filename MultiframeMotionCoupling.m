@@ -345,11 +345,11 @@ classdef MultiframeMotionCoupling< handle
             flexA1 = {obj.kappa*Dx,-obj.kappa*Dx, ...
                       obj.kappa*Dy,-obj.kappa*Dy      };
             
-            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,2,flexA1),[i,nc+i]);
+            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha1,2,flexA1),[nc,2*nc]);
             flexA2 = {Dx, ...
                       Dy      };
             
-            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,1,flexA2),nc+i);
+            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha2,1,flexA2),2*nc);
                     
                   
                     
