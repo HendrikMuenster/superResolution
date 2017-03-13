@@ -250,13 +250,14 @@ classdef MultiframeMotionCoupling< handle
                     warpingOp = constructWarpFF(obj.v,'I-F');
                 end
                 obj.warpOp = warpingOp;
+                if obj.verbose > 0
+                    disp('Warp operator constructed');
+                end
             else
                 warpingOp = obj.warpOp;
-                
-            end
-            
-            if obj.verbose > 0
-                disp('warp operator constructed');
+                if obj.verbose > 0
+                    disp('Warp operator loaded');
+                end
             end
             
             % preweight, based on warping accuracy
@@ -271,11 +272,23 @@ classdef MultiframeMotionCoupling< handle
             disp(['gradient energy on bicubic (per pixel): ',num2str(gradPix)])
             obj.tdist  = gradPix/warpPix;
             
+            %%% Check warp accuracy visually
+            if obj.verbose > 1
+                u_mv = reshape(warpingOp*u_up(:),Ny,Nx,nc);
+                for i = 1:nc-1
+                    figure(i), imagesc(u_mv(:,:,i)),title('visual test of warp accuracy')
+                end
+            end
+            
             %%%% initialize prost variables and operators
             
             % Primal- Core Variable:
             u_vec = prost.variable(Nx*Ny*nc);
-            u_vec.val = u_up(:);
+            if isscalar(obj.u)
+                u_vec.val = u_up(:);
+            else
+                u_vec.val = obj.u(:);
+            end
             w_vec = prost.variable(Nx*Ny*nc);
             p = prost.variable(nx*ny*nc);
             g1 = prost.variable(3*Nx*Ny*nc);
@@ -452,8 +465,8 @@ classdef MultiframeMotionCoupling< handle
             obj.dimsLarge = obj.factor*obj.dimsSmall;
             
             % initialize u,w,v,k
-            obj.u = zeros([obj.dimsLarge,obj.numFrames]);
-            obj.w = zeros([obj.dimsLarge,obj.numFrames]);
+            %obj.u = zeros([obj.dimsLarge,obj.numFrames]);
+            %obj.w = zeros([obj.dimsLarge,obj.numFrames]); this harms reinit
             if obj.flowCompute
                 obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
             end
