@@ -1,9 +1,9 @@
-function [imageSequenceSmall,imageSequenceLarge] = LoadImSequence(datastr,startFrame,numFrames,factor,downSamplingMethod,beReasonable)
+function [imageSequenceSmall,imageSequenceLarge] = LoadImSequence(datastr,startFrame,numFrames,factor,downSamplingMethod,doJPEG)
 % load  image sequence from folder datastr
 % downsample, trim and return
 
 if nargin < 6
-    beReasonable = 'ok';
+    doJPEG = 0;
 end
 
 if nargin < 5
@@ -21,19 +21,20 @@ fileStruct = [dir('*.jpg');dir('*.png');dir('*.tif')];
 imtest = im2double(imread(fileStruct(startFrame).name));
 [xLarge,yLarge,color] = size(imtest);
 
-if strcmp(beReasonable,'ok')
-    factest = 0.5;
-    while xLarge > 1280 || yLarge > 1280
-        xLarge = xLarge*factest;
-        yLarge = yLarge*factest;
-        factest = factest*0.5;
-    end
-end
+
+%     factest = 0.5;
+%     while xLarge > 1280 || yLarge > 1280
+%         xLarge = xLarge*factest;
+%         yLarge = yLarge*factest;
+%         factest = factest*0.5;
+%     end
+
 
 if mod(xLarge/factor,1) || mod(yLarge/factor,1)
     error('input image is not easily dividable by target factor, do something...');
 end
-    
+
+% Process ground truth data
 imageSequenceLarge = zeros(xLarge,yLarge,3,numFrames);
 for jj = startFrame:numFrames+startFrame-1
     imageSequenceLarge(:,:,:,jj-startFrame+1) = imresize(im2double(imread(fileStruct(jj).name)),[xLarge,yLarge]);
@@ -48,12 +49,23 @@ end
 % create downsampled data
 imageSequenceSmall = zeros(xLarge/factor,yLarge/factor,color,numFrames);
 for jj = 1:numFrames
-    imageSequenceSmall(:,:,:,jj) = imresize(imageSequenceLarge(:,:,:,jj),1/factor,downSamplingMethod); 
+    imTemp = imresize(imageSequenceLarge(:,:,:,jj),1/factor,downSamplingMethod, ...
+                                   'Antialiasing',true,'Dither',true); 
+                               
+    if doJPEG
+        imwrite(imTemp,'tempImg.jpg','jpeg','Quality',100); % write to file to remove and JIT optimization
+        imTemp = imread('tempImg.jpg');
+    end
+    imageSequenceSmall(:,:,:,jj) = im2double(imTemp);                     
+end
+
+if doJPEG
+    delete tempImg.jpg
 end
 
 % Correct out-of-bounds values after sampling
-imageSequenceSmall(imageSequenceSmall>1) = 1;
-imageSequenceSmall(imageSequenceSmall<0) = 0;
+%imageSequenceSmall(imageSequenceSmall>1) = 1;
+%imageSequenceSmall(imageSequenceSmall<0) = 0;
 
 % return to old
 cd(olddir);
