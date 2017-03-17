@@ -11,12 +11,8 @@ startFrame = 1;
 numFrames = 13;
 cslice = ceil(numFrames/2);
 
-%% Load Video and code
-dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
-%dataFolder = 'C:\Users\Hendrik\Dropbox\Uni\Projects\2016 - SuperResolutionMunich\superResolutionData\';
-[imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor);    
+factor  = 4;             % Magnification factor
 
-factor = 4;       % Magnification factor
 
 %% ICCV paper data generation process 
 dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
@@ -33,20 +29,19 @@ mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
 % Procedure
 mainSuper.factor        = factor;              % magnification factor
 mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
+mainSuper.framework     = 'flexBox';           % Choose framework for super resolution problem
 
 % Problem parameters
-mainSuper.alpha         = 0.01;                 % regularizer weight
+mainSuper.alpha         = 0.01;                % regularizer weight
 mainSuper.beta          = 0.2;                 % flow field complexity
 mainSuper.kappa         = 0.25;                % regularization pendulum
 
 % Downsampling details
 mainSuper.interpMethod = 'custom';
+width = 7;
+kernel = @(x) double(abs(x)<=2)/4;             % this is the average kernel
+mainSuper.interpKernel = {kernel,width};
 
-if strcmp(mainSuper.interpMethod,'custom')
-    width = 7;
-    kernel = @(x) double(abs(x)<=2)/4; % this is the average kernel
-    mainSuper.interpKernel = {kernel,width};
-end
 
 % "Motion" blur:
 mainSuper.k = fspecial('gaussian',7,sqrt(0.6)); 
@@ -80,13 +75,3 @@ else
 end
 %% 
 disp('---------------------------------------------------------------------')
-
-%% 
-disp('---------------------------------------------------------------------')
-
-%% save warp if not existing
-if ~exist([dataFolder,filesep,datasetName,'_flow.mat'],'file') && saveAndLoad 
-    v = mainSuper.v;
-    warpOp = mainSuper.warpOp;
-    save([dataFolder,filesep,datasetName,'_flow.mat'],'v','warpOp');
-end
