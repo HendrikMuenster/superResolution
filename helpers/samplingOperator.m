@@ -74,8 +74,6 @@ Sy = Dim1Matrix(inputDims(1),targetDims(1),method,kernel,antialiasing)';
 % Call kronecker product to compute output matrix
 S = kron(Sx',Sy);
 
-
-
 end
 
 %=====================================================================
@@ -99,7 +97,7 @@ if ismember(method,{'nearest','linear','pchip','v5cubic'}) && ~antialiasing
     % Call interp1 with the identity matrix
     S = sparse(interp1(inputPos,eye(inputDim),targetPos,method))';
     
-elseif ismember(method,{'nearest','bilinear','bicubic','lanczos2','lanczos3'}) && antialiasing
+elseif ismember(method,{'nearest','bilinear','bicubic','lanczos2','lanczos3'}) || antialiasing && ~strcmp(method,'custom')
     
     % Allocate matrix with enough memory
     if antialiasing
