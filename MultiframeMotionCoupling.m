@@ -138,6 +138,23 @@ classdef MultiframeMotionCoupling< handle
                 obj.warpOp = 0;
             end
             
+            % Given fixed primal variables for first frame -> used to test batch video consistency
+            if exist('u0_frame','var')
+                obj.u0_frame = u0_frame;
+            else
+                obj.u0_frame = [];
+            end
+            
+            if exist('w0_frame','var')
+                obj.w0_frame = w0_frame;
+            else
+                obj.w0_frame = [];
+            end
+            
+            if (isempty(obj.w0_frame) && ~isempty(obj.u0_frame)) || (isempty(obj.u0_frame) && ~isempty(obj.w0_frame))
+                error('Give both fix frames u0 and w0.')
+            end
+            
             % Solver options
             %prostU                                   % main solver class for u subproblem
             % will be constructed in init_u call
@@ -163,11 +180,7 @@ classdef MultiframeMotionCoupling< handle
             obj.interpMethod  = 'average';           % Interpolation method
             obj.interpKernel  = [];                  % Custom interpolation kernel
             obj.interpAA      = false  ;             % Interpolation AA
-            
-            % Fixed primal variables for first frame -> used to test batch video consistency
-            obj.u0_frame          = [];              % Given primal variable u that should correspond to the first low-res input frame
-            obj.w0_frame          = [];              % Given primal variable w that should correspond to the first low-res input frame
-            
+
         end
         
         %% collect inits and validate
@@ -346,6 +359,8 @@ classdef MultiframeMotionCoupling< handle
                 % Add subvariables to first frame primals
                 u1 = prost.sub_variable(u_vec,Nx*Ny);
                 w1 = prost.sub_variable(w_vec,Nx*Ny);
+                u2 = prost.sub_variable(u_vec,Nx*Ny*(nc-1)); %#ok<NASGU>
+                w2 = prost.sub_variable(w_vec,Nx*Ny*(nc-1)); %#ok<NASGU>
                 
                 % Generate min-max problem structure
                 obj.prostU = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2,q1,q2} );
