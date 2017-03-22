@@ -36,13 +36,7 @@ mainSuper.beta          = 0.2;                 % flow field complexity
 mainSuper.kappa         = 0.25;                % regularization pendulum
 
 % Downsampling details
-mainSuper.interpMethod = 'custom';
-
-if strcmp(mainSuper.interpMethod,'custom')
-    width = 7;
-    kernel = @(x) double(abs(x)<=2)/4; % this is the average kernel
-    mainSuper.interpKernel = {kernel,width};
-end
+mainSuper.interpMethod = 'average';
 
 % "Motion" blur:
 mainSuper.k = fspecial('gaussian',7,sqrt(0.6)); 
