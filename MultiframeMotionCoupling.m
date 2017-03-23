@@ -377,7 +377,7 @@ classdef MultiframeMotionCoupling< handle
                 % Add first frame constraint duals <u,q>
                 obj.prostU.add_dual_pair(u1,q1,prost.block.identity);
                 obj.prostU.add_dual_pair(w1,q2,prost.block.identity);
-                % Add constraint linears <u0,q>
+                % Add constraint linears <-u0,q>
                 obj.prostU.add_function(q1,prost.function.sum_1d('zero', 1, 0, 1, obj.u0_frame(:), 0));
                 obj.prostU.add_function(q2,prost.function.sum_1d('zero', 1, 0, 1, obj.w0_frame(:), 0));
                 

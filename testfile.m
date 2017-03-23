@@ -5,16 +5,16 @@
 % following their instructions
 
 
-%clearvars;
+clearvars;
 addpath(genpath(cd)); 
 
 
 
 %% Data properties
-datasetName = 'city';
+datasetName = 'surfer';
 
-startFrame = 1;
-numFrames = 13;
+startFrame = 5;
+numFrames = 5;
 cslice = ceil(numFrames/2);
 
 
@@ -28,9 +28,9 @@ dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
 
 %% Construct algorithm object
 % Input: RGB-Time matlab array 
-mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'u0_frame',u0_frame,'w0_frame',w0_frame);
+mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
 
-%% Set variables
+%% Set variables (these are the standard parameters)
 
 % Procedure
 mainSuper.factor        = factor;              % magnification factor
