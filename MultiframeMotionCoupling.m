@@ -281,7 +281,7 @@ classdef MultiframeMotionCoupling< handle
             
             %%%% Initialize prost variables and operators
             
-            % Primal- Core Variable:
+            % Primal- Core Variables:
             u_vec = prost.variable(Nx*Ny*nc);
             if isscalar(obj.u)
                 u_vec.val = u_up(:);
@@ -289,7 +289,11 @@ classdef MultiframeMotionCoupling< handle
                 u_vec.val = obj.u(:);
             end
             w_vec = prost.variable(Nx*Ny*nc);
-            w_vec.val = u_up(:);
+            if isscalar(obj.w)
+                w_vec.val = obj.w(:);
+            else
+                w_vec.val = u_up(:);
+            end
             p = prost.variable(nx*ny*nc);
             g1 = prost.variable(3*Nx*Ny*nc);
             g2 = prost.variable(3*Nx*Ny*nc);

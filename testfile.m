@@ -6,15 +6,15 @@
 
 
 clearvars;
-addpath(genpath(cd)); 
+%addpath(genpath(cd)); 
 
 
 
 %% Data properties
-datasetName = 'surfer';
+datasetName = 'city';
 
-startFrame = 5;
-numFrames = 5;
+startFrame = 1;
+numFrames = 13;
 cslice = ceil(numFrames/2);
 
 
