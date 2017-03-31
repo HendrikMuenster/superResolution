@@ -1,8 +1,14 @@
-%
-% Video Super Resolution
+%% MULTIFRAME MOTION COUPLING FOR VIDEO SUPER RESOLUTION
+% 
+% 
+% Be sure to initialize the submodules and to compile them
+% following their instructions
+
 
 clearvars;
 addpath(genpath(cd)); 
+
+
 
 %% Data properties
 datasetName = 'city';
@@ -24,7 +30,7 @@ dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
 % Input: RGB-Time matlab array 
 mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
 
-%% Set variables
+%% Set variables (these are the standard parameters)
 
 % Procedure
 mainSuper.factor        = factor;              % magnification factor
@@ -35,16 +41,11 @@ mainSuper.framework     = 'flexBox';           % Choose framework for super reso
 mainSuper.alpha         = 0.01;                % regularizer weight
 mainSuper.beta          = 0.2;                 % flow field complexity
 mainSuper.kappa         = 0.25;                % regularization pendulum
+mainSuper.flowDirection = 'forward';           % flow field direction
 
-% Downsampling details
-mainSuper.interpMethod = 'custom';
-width = 7;
-kernel = @(x) double(abs(x)<=2)/4;             % this is the average kernel
-mainSuper.interpKernel = {kernel,width};
-
-
-% "Motion" blur:
-mainSuper.k = fspecial('gaussian',7,sqrt(0.6)); 
+% Operator details
+mainSuper.interpMethod = 'average';            % Downsampling operator D
+mainSuper.k = fspecial('gaussian',7,sqrt(0.6));% Blur operator B  
 
 
 %% Init flow field and solvers

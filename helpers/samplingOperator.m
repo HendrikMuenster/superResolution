@@ -35,7 +35,7 @@ function [S] = samplingOperator(inputDims,targetDims,method,kernel,antialiasing)
 
 
 % Validate interpolation method
-validatestring(method,{'nearest','bilinear','bicubic','bicubic-0','lanczos2','lanczos3','pchip','custom'});
+validatestring(method,{'nearest','bilinear','bicubic','bicubic-0','lanczos2','lanczos3','pchip','custom','average'});
 
 
 % Validate input arguments
@@ -62,6 +62,12 @@ end
 % pchip and fast bicubic are not possible with antialiasing
 if antialiasing && ismember(method,{'v5cubic','pchip'})
     error(' The chosen method is not possible together with antialiasing');
+end
+
+% average is shorthand for this custom filter:
+if strcmp(method,'average')
+    method = 'custom';
+    kernel = {@(x) double(abs(x)<=2)/4,7}; % this is the average kernel with 7 pixels
 end
 
 

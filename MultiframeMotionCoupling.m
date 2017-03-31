@@ -30,17 +30,22 @@ classdef MultiframeMotionCoupling< handle
         % Output Data
         result1            % u (final result) colored
         result2            % u-w (temporally stabilized frames) colored
+         
         
         
         % Solver options
         framework          % Choice of framework prost/flexBox
         MMCsolver          % main solver object for u subproblem
         
+        % Options
         opts               % prost options
+        
+        % Parameters
         alpha              % weights for regularizer of u
         beta               % weights for regularizer of v
         kappa              % regularizer adjustment
         h                  % time distance heuristic
+        flowDirection      % 'forward','backward' or 'forward-backward' flow computation and usage
         
         verbose
         
@@ -52,9 +57,14 @@ classdef MultiframeMotionCoupling< handle
         % Extra Input
         warpOp             % A given warping operator (deactivates flow computation !)
         
+        % Fixed primal variables for first frame -> used to test batch video consistency
+        u0_frame           % Given primal variable u that should correspond to the first low-res input frame
+        w0_frame           % Given primal variable w that should correspond to the first low-res input frame
+        
         % Book-keeping
         colorflag          % Is set to 1 for color videos to enable YCbCr treatment
         flowCompute        % no flow needs to be computed if it is given by mechanics or previous runs
+        
     end
     
     methods
@@ -130,6 +140,23 @@ classdef MultiframeMotionCoupling< handle
                 obj.warpOp = 0;
             end
             
+            % Given fixed primal variables for first frame -> used to test batch video consistency
+            if exist('u0_frame','var')
+                obj.u0_frame = u0_frame;
+            else
+                obj.u0_frame = [];
+            end
+            
+            if exist('w0_frame','var')
+                obj.w0_frame = w0_frame;
+            else
+                obj.w0_frame = [];
+            end
+            
+            if (isempty(obj.w0_frame) && ~isempty(obj.u0_frame)) || (isempty(obj.u0_frame) && ~isempty(obj.w0_frame))
+                error('Give both fix frames u0 and w0.')
+            end
+            
             % Solver options
             %MMCsolver                                 % main solver class for u subproblem
             % will be constructed in init_u_... call
@@ -145,19 +172,20 @@ classdef MultiframeMotionCoupling< handle
             %'tol_rel_primal', 1e-10, ...
             %'tol_rel_dual', 1e-10, ...
             %'tol_abs_dual', 1e-10, ...
-            %'tol_abs_primal', 1e-10);                      % prost precision options
+            %'tol_abs_primal', 1e-10);                % optional prost precision options
             
-            
-            obj.alpha = 0.01;                      % weights for regularizer of u
-            obj.beta   = 0.1;                         % weights for regularizer of v
-            obj.kappa  = 0.5;
+            % Parameter standards
+            obj.alpha  = 0.01;                        % weights for regularizer of u
+            obj.beta   = 0.2;                         % weights for regularizer of v
+            obj.kappa  = 0.25;
             obj.h      = 1;
+            obj.flowDirection = 'forward';
             
             % standard interpolation parameters
-            obj.interpMethod  = 'bicubic-0';     % Interpolation method
-            obj.interpKernel  = [];               % Custom interpolation kernel
-            obj.interpAA      = false  ;          % Interpolation AA
-            
+            obj.interpMethod  = 'average';           % Interpolation method
+            obj.interpKernel  = [];                  % Custom interpolation kernel
+            obj.interpAA      = false  ;             % Interpolation AA
+
         end
         
         %% collect inits and validate
@@ -167,18 +195,12 @@ classdef MultiframeMotionCoupling< handle
                 disp('Initialization...')
             end
             
-            % validate and set variables
-            
-            % update sizes for non-standard factor
+            % update sizes to account for factor changes
             obj.dimsLarge = obj.factor*obj.dimsSmall;
-            
-            % initialize
+
+            % Call actual flow method
             if obj.flowCompute
                 obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
-            end
-            
-            % Call actual initialization methods
-            if obj.flowCompute
                 obj.init_v0;
             end
             
@@ -212,7 +234,7 @@ classdef MultiframeMotionCoupling< handle
             if obj.verbose > 0
                 disp('Downsampling operator constructed');
             end
-            % short some notation
+            % shorten some notation
             temp = obj.dimsSmall;
             ny=temp(1); nx=temp(2);
             temp = obj.dimsLarge;
@@ -222,31 +244,38 @@ classdef MultiframeMotionCoupling< handle
             
             % Call warp operator constructor
             if isscalar(obj.warpOp)
-                warpingOp = constructWarpFF(obj.v,'F-I');
+                
+                % Construct warp in specified direction
+                if strcmp(obj.flowDirection,'forward')
+                    warpingOp = constructWarpFF(obj.v,'F-I');
+                elseif strcmp(obj.flowDirection,'backward')
+                    warpingOp = constructWarpFF(obj.v,'I-F');
+                elseif strcmp(obj.flowDirection,'forward-backward')
+                    warpingOp = constructWarpFB(obj.v); 
+                end
+                % Save to object
                 obj.warpOp = warpingOp;
                 if obj.verbose > 0
                     disp('Warp operator constructed');
                 end
             else
+                % Otherwise load given warp operator
+                % Make sure that the loaded warp operator comes with the
+                % desired flow direction
                 warpingOp = obj.warpOp;
                 if obj.verbose > 0
                     disp('Warp operator loaded');
                 end
             end
             
-            % preweight, based on warping accuracy
+            % Compute bicubic estimate
             u_up = zeros(Ny,Nx,nc);
             for i = 1:nc
                 u_up(:,:,i) = imresize(obj.imageSequenceSmall(:,:,i),obj.factor);
             end
-            warpPix = sum(abs(warpingOp*u_up(:)))/numel(u_up);
-            disp(['Warp energy on bicubic (per pixel): ',num2str(warpPix)]);
-            GradOp = spmat_gradient2d(Nx, Ny, nc);
-            gradPix = sum(abs(GradOp*u_up(:)))/numel(u_up);
-            disp(['Gradient energy on bicubic (per pixel): ',num2str(gradPix)])
-            obj.h  = warpPix/gradPix;
             
-            %%% Check warp accuracy visually
+            
+            % Check warp accuracy visually on bicbubic estimate
             if obj.verbose > 1
                 u_mv = reshape(warpingOp*u_up(:),Ny,Nx,nc);
                 for i = 1:nc-1
@@ -254,9 +283,17 @@ classdef MultiframeMotionCoupling< handle
                 end
             end
             
-            %%%% initialize prost variables and operators
+            %%% Preweight, based on warping accuracy to compute h
+            warpPix = sum(abs(warpingOp*u_up(:)))/numel(u_up);
+            disp(['Warp energy on bicubic (per pixel): ',num2str(warpPix)]);
+            GradOp = spmat_gradient2d(Nx, Ny, nc);
+            gradPix = sum(abs(GradOp*u_up(:)))/numel(u_up);
+            disp(['Gradient energy on bicubic (per pixel): ',num2str(gradPix)])
+            obj.h  = warpPix/gradPix;
             
-            % Primal- Core Variable:
+            %%%% Initialize prost variables and operators
+            
+            % Primal- Core Variables:
             u_vec = prost.variable(Nx*Ny*nc);
             if isscalar(obj.u)
                 u_vec.val = u_up(:);
@@ -264,13 +301,17 @@ classdef MultiframeMotionCoupling< handle
                 u_vec.val = obj.u(:);
             end
             w_vec = prost.variable(Nx*Ny*nc);
-            w_vec.val = u_up(:);
+            if isscalar(obj.w)
+                w_vec.val = obj.w(:);
+            else
+                w_vec.val = u_up(:);
+            end
             p = prost.variable(nx*ny*nc);
             g1 = prost.variable(3*Nx*Ny*nc);
             g2 = prost.variable(3*Nx*Ny*nc);
             
             % Connect variables to primal-dual problem
-            if obj.kappa ~= 1 && ~isnan(obj.kappa)
+            if obj.kappa ~= 1 && ~isnan(obj.kappa) && isempty(obj.u0_frame)
                 
                 % Generate min-max problem structure
                 obj.MMCsolver = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2} );
@@ -325,7 +366,43 @@ classdef MultiframeMotionCoupling< handle
                 obj.MMCsolver.add_function(g1, prost.function.sum_1d('ind_box01', 1/(2*obj.alpha), -0.5, 1, 0, 0)); %l^1
                 obj.MMCsolver.add_function(g2, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha, 1, 1, 0, 0)); %l^{2,1}
                 
+            elseif obj.kappa ~= 1 && ~isnan(obj.kappa) && ~isempty(obj.u0_frame)
                 
+                % Add new variables to fix first frame of primal variables
+                q1 = prost.variable(Nx*Ny);
+                q2 = prost.variable(Nx*Ny);
+                
+                % Add subvariables to first frame primals
+                u1 = prost.sub_variable(u_vec,Nx*Ny);
+                w1 = prost.sub_variable(w_vec,Nx*Ny);
+                u2 = prost.sub_variable(u_vec,Nx*Ny*(nc-1)); %#ok<NASGU>
+                w2 = prost.sub_variable(w_vec,Nx*Ny*(nc-1)); %#ok<NASGU>
+                
+                % Generate min-max problem structure
+                obj.MMCsolver = prost.min_max_problem( {u_vec,w_vec}, {p,g1,g2,q1,q2} );
+                
+                
+                % Initialize full downsampling implicitly as kron(id(numFrames,D)
+                obj.MMCsolver.add_dual_pair(u_vec, p, prost.block.id_kron_sparse(dsOp,obj.numFrames));
+                
+                % Add inf-conv duals
+                obj.MMCsolver.add_dual_pair(u_vec, g1, prost.block.sparse([warpingOp/obj.h;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
+                obj.MMCsolver.add_dual_pair(w_vec, g1, prost.block.sparse(-[warpingOp/obj.h;obj.kappa*spmat_gradient2d(Nx, Ny,nc)]));
+                obj.MMCsolver.add_dual_pair(w_vec, g2, prost.block.sparse([obj.kappa*warpingOp/obj.h;spmat_gradient2d(Nx, Ny,nc)]));
+                
+                % Add first frame constraint duals <u,q>
+                obj.MMCsolver.add_dual_pair(u1,q1,prost.block.identity);
+                obj.MMCsolver.add_dual_pair(w1,q2,prost.block.identity);
+                % Add constraint linears <-u0,q>
+                obj.MMCsolver.add_function(q1,prost.function.sum_1d('zero', 1, 0, 1, obj.u0_frame(:), 0));
+                obj.MMCsolver.add_function(q2,prost.function.sum_1d('zero', 1, 0, 1, obj.w0_frame(:), 0));
+                
+                
+                % Add dual set functions
+                obj.MMCsolver.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
+                obj.MMCsolver.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.MMCsolver.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha, 1, 1, 0, 0)); %l^{2,1}
+                obj.MMCsolver.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha, 1, 1, 0, 0)); %l^{2,1}
             end
             
         end
@@ -480,33 +557,48 @@ classdef MultiframeMotionCoupling< handle
             
             
             for j=1:obj.numFrames-1
+                
                 % Select correct flow direction
-                uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                if strcmp(obj.flowDirection,'forward')
+                    uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                elseif strcmp(obj.flowDirection,'backward')
+                    uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
+                elseif strcmp(obj.flowDirection,'forward-backward')
+                    % alternate forward and backward:
+                    if (mod(j,2)==1)
+                        uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
+                    else           
+                        uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
+                    end
+                else
+                    error('Invalid flow direction.');
+                end
+                    
                 
                 motionEstimator = motionEstimatorClass(uTmpSmall,1e-6,obj.beta);
                 motionEstimator.verbose = 0;
                 
-                % motion estimator energy parameters:
+                % Motion estimator energy parameters:
                 motionEstimator.dataTerm = 'L1';
                 motionEstimator.regularizerTerm ='Huber';
                 motionEstimator.doGradientConstancy = 1;
                 
                 
-                % pyramid scheme:
+                % Pyramid scheme parameters:
                 motionEstimator.doGaussianSmoothing = 1;
                 motionEstimator.medianFiltering = 1;
                 motionEstimator.numberOfWarps = 5;
                 motionEstimator.steplength = 0.9;
                 
-                % run motion estimator
+                % Run motion estimator
                 motionEstimator.init;
                 motionEstimator.runPyramid;
                 
                 vTmp = motionEstimator.getResult;
                 
-                % motion estimator velocity field is x-y instead of m-n
-                % estimating motion on the low-res frames and interpolating seems to be
-                % as efficient as interpolating first and estimating
+                % Motion estimator velocity field is x-y instead of m-n.
+                % Estimating motion on the low-res frames and interpolating seems to be
+                % as efficient as interpolating first and estimating.
                 obj.v(:,:,j,1) = imresize(vTmp(:,:,1,2), obj.dimsLarge) * obj.factor;
                 obj.v(:,:,j,2) = imresize(vTmp(:,:,1,1), obj.dimsLarge) * obj.factor;
                 
@@ -565,6 +657,7 @@ classdef MultiframeMotionCoupling< handle
         %% Recompute RGB image
         
         function recomputeRGB(obj)
+            % main result
             imageSequenceUp = zeros(obj.dimsLarge(1),obj.dimsLarge(2),3,obj.numFrames);
             for i = 1:obj.numFrames
                 imageSequenceUp(:,:,1,i) = obj.u(:,:,i);                                         % actually computed Y
@@ -573,10 +666,14 @@ classdef MultiframeMotionCoupling< handle
                 imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
             end
             obj.result1 = imageSequenceUp;
+            
+            % u -w
             if obj.kappa ~= 1 && ~isnan(obj.kappa)
                 imageSequenceUp = zeros(obj.dimsLarge(1),obj.dimsLarge(2),3,obj.numFrames);
                 for i = 1:obj.numFrames
                     imageSequenceUp(:,:,1,i) = obj.u(:,:,i)-obj.w(:,:,i);                            % actually computed Y
+                    
+                    % correct mean values ??
                     imageSequenceUp(:,:,2,i) = imresize(obj.imageSequenceYCbCr(:,:,2,i),obj.factor); % bicubic Cb
                     imageSequenceUp(:,:,3,i) = imresize(obj.imageSequenceYCbCr(:,:,3,i),obj.factor); % bicubic Cr
                     imageSequenceUp(:,:,:,i) = ycbcr2rgb(imageSequenceUp(:,:,:,i));
