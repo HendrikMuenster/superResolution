@@ -6,7 +6,7 @@
 
 
 clearvars;
-%addpath(genpath(cd)); 
+addpath(genpath(cd)); 
 
 
 

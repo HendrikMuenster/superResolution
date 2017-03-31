@@ -4,3 +4,6 @@
 [submodule "motionEstimationGUI"]
 	path = motionEstimationGUI
 	url = https://github.com/HendrikMuenster/motionEstimationGUI
+[submodule "prost"]
+	path = prost
+	url = https://github.com/tum-vision/prost
