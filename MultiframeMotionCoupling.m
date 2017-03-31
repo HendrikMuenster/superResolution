@@ -209,6 +209,8 @@ classdef MultiframeMotionCoupling< handle
                 obj.init_u_prost;
             elseif strcmp(obj.framework,'flexBox')
                 obj.init_u_flexBox;
+            elseif strcmp(obj.framework,'flexBox_vector')
+                obj.init_u_flexBox_vector;
             else
                 error('Invalid framework string.');
             end
@@ -407,6 +409,115 @@ classdef MultiframeMotionCoupling< handle
             
         end
         
+        
+        %% create vector flexBox object for u
+        function init_u_flexBox_vector(obj)
+            
+        %%%% Create operators
+            
+            % Call sampling function to construct matrix representation
+            dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
+            
+            % Use blur kernel:
+            if ~isempty(obj.k) || isscalar(obj.k)
+                dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
+            end
+            
+            if obj.verbose > 0
+                disp('Downsampling operator constructed');
+            end
+            % shorten some notation
+            temp = obj.dimsLarge;
+            Ny = temp(1);
+            Nx = temp(2);
+            nc =  obj.numFrames;
+            
+            % Call warp operator constructor
+            if isscalar(obj.warpOp)
+                
+                % Construct warp in specified direction
+                if strcmp(obj.flowDirection,'forward')
+                    warpingOp = constructWarpFF(obj.v,'F-I');
+                elseif strcmp(obj.flowDirection,'backward')
+                    warpingOp = constructWarpFF(obj.v,'I-F');
+                elseif strcmp(obj.flowDirection,'forward-backward')
+                    warpingOp = constructWarpFB(obj.v); 
+                end
+                % Save to object
+                obj.warpOp = warpingOp;
+                if obj.verbose > 0
+                    disp('Warp operator constructed');
+                end
+            else
+                % Otherwise load given warp operator
+                % Make sure that the loaded warp operator comes with the
+                % desired flow direction
+                warpingOp = obj.warpOp;
+                if obj.verbose > 0
+                    disp('Warp operator loaded');
+                end
+            end
+            
+            % Build gradient matrices
+            D = spmat_gradient2d(Nx, Ny,nc);
+            Dx = D(1:Nx*Ny*nc,:); Dy = D(Nx*Ny*nc+1:end,:);
+            
+            % Compute bicubic estimate
+            u_up = zeros(Ny,Nx,nc);
+            for i = 1:nc
+                u_up(:,:,i) = imresize(obj.imageSequenceSmall(:,:,i),obj.factor);
+            end
+            
+            
+            % Check warp accuracy visually on bicbubic estimate
+            if obj.verbose > 1
+                u_mv = reshape(warpingOp*u_up(:),Ny,Nx,nc);
+                for i = 1:nc-1
+                    figure(i), imagesc(u_mv(:,:,i)),title('Visual test of warp accuracy')
+                end
+            end
+            
+            %%% Preweight, based on warping accuracy to compute h
+            warpPix = sum(abs(warpingOp*u_up(:)))/numel(u_up);
+            disp(['Warp energy on bicubic (per pixel): ',num2str(warpPix)]);
+            GradOp = spmat_gradient2d(Nx, Ny, nc);
+            gradPix = sum(abs(GradOp*u_up(:)))/numel(u_up);
+            disp(['Gradient energy on bicubic (per pixel): ',num2str(gradPix)])
+            obj.h  = warpPix/gradPix;
+            
+            %%%% Initialize prost variables and operators
+            obj.MMCsolver = flexBox;
+            obj.MMCsolver.params.tol = 1e-4;
+            obj.MMCsolver.params.tryCPP = 1;
+            obj.MMCsolver.params.verbose = 1;
+            obj.MMCsolver.params.maxIt = 10000;
+            
+            % Add primal variables u and w
+            obj.MMCsolver.addPrimalVar([Ny,Nx,nc]); % u
+            obj.MMCsolver.addPrimalVar([Ny,Nx,nc]); % w
+            
+            % Build data term
+            obj.MMCsolver.addTerm(L1dataTermOperator(1,kron(speye(nc),dsOp),obj.imageSequenceSmall(:)),1);
+            obj.MMCsolver.addTerm(boxConstraint(0,1,[Ny,Nx,nc]),1);
+            
+            
+            % Build infconv regularizer
+            % Add first infconv part
+            flexA1 = { warpingOp/obj.h, -warpingOp/obj.h, ...
+                       obj.kappa*Dx,    - obj.kappa*Dx,   ...
+                       obj.kappa*Dy,    - obj.kappa*Dy        };
+            
+            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,2,flexA1),[1,2]);
+            % Add second infconv part
+            flexA2 = { obj.kappa*warpingOp/obj.h, ...
+                                 Dx,              ...
+                                 Dy                     };
+            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,1,flexA2),2);
+            
+            % set bicubic starting vector for u and w
+            obj.MMCsolver.x{1,1} = u_up(:);
+            obj.MMCsolver.x{1,2} = u_up(:);
+        end
         %% create flexBox object for u
         function init_u_flexBox(obj)
             
@@ -484,7 +595,7 @@ classdef MultiframeMotionCoupling< handle
             %%%% initialize flexBox solver
             
             obj.MMCsolver = flexBox;
-            obj.MMCsolver.params.tol = 1e-6;
+            obj.MMCsolver.params.tol = 1e-4;
             obj.MMCsolver.params.tryCPP = 1;
             obj.MMCsolver.params.verbose = 1;
             obj.MMCsolver.params.maxIt = 10000;
@@ -512,15 +623,15 @@ classdef MultiframeMotionCoupling< handle
                 Id = Ids{i}/obj.h;
                 
                 % Add first infconv part
-                flexA1 = {obj.kappa*Dx    ,zeroOperator(N),-obj.kappa*Dx,   zeroOperator(N), ...
-                    obj.kappa*Dy    ,zeroOperator(N),-obj.kappa*Dy,   zeroOperator(N), ...
-                    Wi              ,-Id            ,-Wi          ,   Id                   };
+                flexA1 = {Wi              ,-Id            ,-Wi          ,   Id,              ...
+                          obj.kappa*Dx    ,zeroOperator(N),-obj.kappa*Dx,   zeroOperator(N), ...
+                          obj.kappa*Dy    ,zeroOperator(N),-obj.kappa*Dy,   zeroOperator(N)                   };
                 
                 obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,4,flexA1),[i,i+1,nc+i,nc+i+1]);
                 % Add second infconv part
-                flexA2 = {Dx            ,zeroOperator(N), ...
-                    Dy            ,zeroOperator(N), ...
-                    obj.kappa*Wi  ,-obj.kappa*Id       };
+                flexA2 = {obj.kappa*Wi  ,-obj.kappa*Id,...
+                          Dx            ,zeroOperator(N), ...
+                          Dy            ,zeroOperator(N)      };
                 
                 obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,2,flexA2),[nc+i,nc+i+1]); 
             end
@@ -628,7 +739,7 @@ classdef MultiframeMotionCoupling< handle
                 if obj.kappa ~=1 && ~isnan(obj.kappa)
                     obj.w = reshape(obj.MMCsolver.primal_vars{1,2}.val,[obj.dimsLarge, obj.numFrames]);
                 end
-            else
+            elseif strcmp(obj.framework,'flexBox')
                 % Call flexBox framework
                 obj.MMCsolver.runAlgorithm;
                 
@@ -637,7 +748,14 @@ classdef MultiframeMotionCoupling< handle
                     wi           = obj.MMCsolver.getPrimal(obj.numFrames+i);
                     obj.u(:,:,i) = reshape(ui,obj.dimsLarge);
                     obj.w(:,:,i) = reshape(wi,obj.dimsLarge);
-                end
+                end 
+            else % Vector valued flexBox
+                % Call flexBox 
+                obj.MMCsolver.runAlgorithm;
+                
+                % Extract solution
+                obj.u = obj.MMCsolver.getPrimal(1);
+                obj.w = obj.MMCsolver.getPrimal(2);
             end
             
             

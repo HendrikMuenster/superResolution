@@ -35,7 +35,9 @@ mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
 % Procedure
 mainSuper.factor        = factor;              % magnification factor
 mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
-mainSuper.framework     = 'flexBox';           % Choose framework for super resolution problem
+mainSuper.framework     = 'flexBox_vector';    % Choose framework for super resolution problem
+                                               % Either 'flexBox' or 'flexBox_vector'
+                                               % or 'prost', if installed
 
 % Problem parameters
 mainSuper.alpha         = 0.01;                % regularizer weight
