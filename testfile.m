@@ -11,10 +11,10 @@ addpath(genpath(cd));
 
 
 %% Data properties
-datasetName = 'city';
+datasetName = 'surferdog';
 
 startFrame = 1;
-numFrames = 13;
+numFrames = 7;
 cslice = ceil(numFrames/2);
 
 factor  = 4;             % Magnification factor
@@ -35,7 +35,7 @@ mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
 % Procedure
 mainSuper.factor        = factor;              % magnification factor
 mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
-mainSuper.framework     = 'flexBox_vector';    % Choose framework for super resolution problem
+mainSuper.framework     = 'flexBox';    % Choose framework for super resolution problem
                                                % Either 'flexBox' or 'flexBox_vector'
                                                % or 'prost', if installed
 
@@ -48,7 +48,8 @@ mainSuper.flowDirection = 'forward';           % flow field direction
 % Operator details
 mainSuper.interpMethod = 'average';            % Downsampling operator D
 mainSuper.k = fspecial('gaussian',7,sqrt(0.6));% Blur operator B  
-
+mainSuper.VDSRFlag     = false;                 % Enable VDSR initial guess
+%vl_setupnn()
 
 %% Init flow field and solvers
 tic

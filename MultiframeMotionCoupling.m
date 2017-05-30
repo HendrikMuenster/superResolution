@@ -64,6 +64,7 @@ classdef MultiframeMotionCoupling< handle
         % Book-keeping
         colorflag          % Is set to 1 for color videos to enable YCbCr treatment
         flowCompute        % no flow needs to be computed if it is given by mechanics or previous runs
+        VDSRFlag            % Use bicubic or VDSR initial guess
         
     end
     
@@ -185,6 +186,9 @@ classdef MultiframeMotionCoupling< handle
             obj.interpMethod  = 'average';           % Interpolation method
             obj.interpKernel  = [];                  % Custom interpolation kernel
             obj.interpAA      = false  ;             % Interpolation AA
+            
+            % flags
+            obj.VDSRFlag       = true;
 
         end
         
@@ -656,18 +660,30 @@ classdef MultiframeMotionCoupling< handle
                       Dy      };
             
             obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,1,flexA2),2*nc);
-                    
-                  
-                    
-           %%%% Set bicubic estimation as start vector
-           for i = 1:nc
-               ui = u_up(:,:,i);
-               obj.MMCsolver.x{1,i} = ui(:);
-           end
-           
-           if obj.verbose > 0 
-               disp('FlexBox object initialized');
-           end
+            
+            
+            
+            %%%% Set bicubic/VDSR estimation as start vector
+            if obj.VDSRFlag
+                try
+                    get_VDSR(obj.imageSequenceSmall(:,:,i),obj.factor);
+                catch
+                    warning('Using bicubic interpolation as initial guess instead of VDSR');
+                    obj.VDSRFlag = false;
+                end
+            end
+            for i = 1:nc
+                if ~obj.VDSRFlag
+                    ui = u_up(:,:,i);
+                else
+                    ui = get_VDSR(obj.imageSequenceSmall(:,:,i),obj.factor); % VDSR link
+                end
+                obj.MMCsolver.x{1,i} = ui(:);
+            end
+            
+            if obj.verbose > 0
+                disp('FlexBox object initialized');
+            end
             
         end
         
