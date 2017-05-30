@@ -11,7 +11,7 @@ addpath(genpath(cd));
 
 
 %% Data properties
-datasetName = 'bandage_1';
+datasetName = 'bandage_1_clean';
 
 startFrame = 1;
 numFrames = 13;
@@ -27,19 +27,20 @@ dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
 
 %% load gt flow
 flowFolder = '/windows/DataJonas/ScieboLocalFolder/Data/flow_scenes/';
+datasetName = 'bandage_1';
 [ny,nx,nc,nf] = size(imageSequenceSmall);
 v = zeros(ny*factor,nx*factor,nf-1,2);
-for i = 1:numFrames
+for i = 1:nf-1
     vTmp = readFlowFile([flowFolder,filesep,datasetName,filesep,'frame_',num2str(i,'%04d'),'.flo']);
-    v(:,:,i,1) = vTmp(:,:,2);
-    v(:,:,i,2) = vTmp(:,:,1);
+    v(:,:,i,1) = vTmp(:,:,1);
+    v(:,:,i,2) = vTmp(:,:,2);
 end
 
 
 %% Construct algorithm object
 % Input: RGB-Time matlab array 
-%mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'flowField',v);
-mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
+mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'flowField',v);
+%mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
 
 %% Set variables (these are the standard parameters)
 
@@ -51,16 +52,16 @@ mainSuper.framework     = 'flexBox';           % Choose framework for super reso
                                                % or 'prost', if installed
 
 % Problem parameters
-mainSuper.alpha         = 0.01;                % regularizer weight
+mainSuper.alpha         = 0.005;                % regularizer weight
 mainSuper.beta          = 0.2;                 % flow field complexity
 mainSuper.kappa         = 0.25;                % regularization pendulum
-mainSuper.flowDirection = 'forward';           % flow field direction
+mainSuper.flowDirection = 'backward';           % flow field direction 
 
 % Operator details
 mainSuper.interpMethod = 'average';            % Downsampling operator D
 mainSuper.k = fspecial('gaussian',7,sqrt(0.6));% Blur operator B  
-mainSuper.VDSRFlag     = true;                 % Enable VDSR initial guess
-vl_setupnn()
+mainSuper.VDSRFlag     = false;                 % Enable VDSR initial guess
+%vl_setupnn()
 
 %% Init flow field and solvers
 tic
@@ -90,3 +91,7 @@ else
 end
 %% 
 disp('---------------------------------------------------------------------')
+%
+% Results are not much better - why ??
+%
+% 

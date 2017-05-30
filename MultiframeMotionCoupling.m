@@ -30,7 +30,7 @@ classdef MultiframeMotionCoupling< handle
         % Output Data
         result1            % u (final result) colored
         result2            % u-w (temporally stabilized frames) colored
-         
+        
         
         
         % Solver options
@@ -189,7 +189,7 @@ classdef MultiframeMotionCoupling< handle
             
             % flags
             obj.VDSRFlag       = true;
-
+            
         end
         
         %% collect inits and validate
@@ -201,7 +201,7 @@ classdef MultiframeMotionCoupling< handle
             
             % update sizes to account for factor changes
             obj.dimsLarge = obj.factor*obj.dimsSmall;
-
+            
             % Call actual flow method
             if obj.flowCompute
                 obj.v = zeros([obj.dimsLarge,obj.numFrames-1,2]);
@@ -231,9 +231,9 @@ classdef MultiframeMotionCoupling< handle
             %%%% Create backend and options
             
             obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 10, ...
-               'sigma0', 0.1);                       % prost backend options
+                'sigma0', 0.1);                       % prost backend options
             obj.opts.opts = prost.options('max_iters', 15000, 'num_cback_calls', 5,...
-               'verbose', true);%, ...
+                'verbose', true);%, ...
             %'tol_rel_primal', 1e-10, ...
             %'tol_rel_dual', 1e-10, ...
             %'tol_abs_dual', 1e-10, ...
@@ -269,7 +269,7 @@ classdef MultiframeMotionCoupling< handle
                 elseif strcmp(obj.flowDirection,'backward')
                     warpingOp = constructWarpFF(obj.v,'I-F');
                 elseif strcmp(obj.flowDirection,'forward-backward')
-                    warpingOp = constructWarpFB(obj.v); 
+                    warpingOp = constructWarpFB(obj.v);
                 end
                 % Save to object
                 obj.warpOp = warpingOp;
@@ -429,7 +429,7 @@ classdef MultiframeMotionCoupling< handle
         %% create vector flexBox object for u
         function init_u_flexBox_vector(obj)
             
-        %%%% Create operators
+            %%%% Create operators
             
             % Call sampling function to construct matrix representation
             dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
@@ -457,7 +457,7 @@ classdef MultiframeMotionCoupling< handle
                 elseif strcmp(obj.flowDirection,'backward')
                     warpingOp = constructWarpFF(obj.v,'I-F');
                 elseif strcmp(obj.flowDirection,'forward-backward')
-                    warpingOp = constructWarpFB(obj.v); 
+                    warpingOp = constructWarpFB(obj.v);
                 end
                 % Save to object
                 obj.warpOp = warpingOp;
@@ -520,14 +520,14 @@ classdef MultiframeMotionCoupling< handle
             % Build infconv regularizer
             % Add first infconv part
             flexA1 = { warpingOp/obj.h, -warpingOp/obj.h, ...
-                       obj.kappa*Dx,    - obj.kappa*Dx,   ...
-                       obj.kappa*Dy,    - obj.kappa*Dy        };
+                obj.kappa*Dx,    - obj.kappa*Dx,   ...
+                obj.kappa*Dy,    - obj.kappa*Dy        };
             
             obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,2,flexA1),[1,2]);
             % Add second infconv part
             flexA2 = { obj.kappa*warpingOp/obj.h, ...
-                                 Dx,              ...
-                                 Dy                     };
+                Dx,              ...
+                Dy                     };
             obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,1,flexA2),2);
             
             % set bicubic starting vector for u and w
@@ -545,10 +545,10 @@ classdef MultiframeMotionCoupling< handle
             nc =  obj.numFrames;
             
             % Failsafe
-            if isnan(obj.kappa)
-                error('Additive warp not implemented yet for flexBox.');
+            if isnan(obj.kappa) || (obj.kappa) == 0
+                error('Additive warp and full separation not implemented yet for flexBox.');
             end
-           
+            
             %%%% Create operators
             
             % Build downsampling matrix
@@ -565,7 +565,7 @@ classdef MultiframeMotionCoupling< handle
             
             % Construct warp operators and reduced identities
             for i = 1:nc-1
-                               
+                
                 singleField = squeeze(obj.v(:,:,i,:));
                 Wi   = warpingOperator(obj.dimsLarge,singleField);
                 Id   = speye(N);
@@ -574,11 +574,11 @@ classdef MultiframeMotionCoupling< handle
                 marker = sum(abs(Wi),2) == 0;
                 Wi(marker > 0,:) = 0;
                 Id(marker > 0,:) = 0; %#ok<SPRIX>
-
+                
                 warps{i} = Wi;  %#ok<AGROW>
                 Ids{i}   = Id;  %#ok<AGROW>
-            end            
-           
+            end
+            
             % Build gradient matrices
             D = spmat_gradient2d(Nx, Ny,1);
             Dx = D(1:Nx*Ny,:); Dy = D(Nx*Ny+1:end,:);
@@ -586,18 +586,26 @@ classdef MultiframeMotionCoupling< handle
             
             %%%% Compute adaptive parameter h
             
-            % Compute bicubic estimate 
+            % Compute bicubic estimate
             u_up = zeros([obj.dimsLarge,nc]);
             for i = 1:nc
                 u_up(:,:,i) = imresize(obj.imageSequenceSmall(:,:,i),obj.factor,'bicubic');
             end
-            % Accumulate estimates 
+            % Accumulate estimates
             Du = zeros(nc,1);Wu = zeros(nc,1);
             for i = 1:nc-1
                 ui = u_up(:,:,i);
                 uj = u_up(:,:,i+1);
                 Du(i) = sum(abs(Dx*ui(:))+abs(Dy*ui(:)));
-                Wu(i) = sum(abs(-Ids{i}*uj(:)+warps{i}*ui(:)));
+                if strcmp(obj.flowDirection,'forward')
+                    Wu(i) = sum(abs(-Ids{i}*uj(:)+warps{i}*ui(:)));
+                elseif strcmp(obj.flowDirection,'backward')
+                    Wu(i) = sum(abs(Ids{i}*ui(:)-warps{i}*uj(:)));
+                elseif strcmp(obj.flowDirection,'forward-backward')
+                    eror('todo'); %% todoWu(i) = sum(abs(-Ids{i}*uj(:)+warps{i}*ui(:)));
+                else
+                    error('');
+                end
             end
             ui = u_up(:,:,nc);
             Du(nc) = sum(abs(Dx*ui(:))+abs(Dy*ui(:)));
@@ -633,34 +641,65 @@ classdef MultiframeMotionCoupling< handle
             end
             
             % Build nc-1 infconv regularizers
-            for i = 1:nc-1
-                % Get warp and identity
-                Wi = warps{i}/obj.h;
-                Id = Ids{i}/obj.h;
+            if strcmp(obj.flowDirection,'forward')
+                for i = 1:nc-1
+                    % Get warp and identity
+                    Wi = warps{i}/obj.h;
+                    Id = Ids{i}/obj.h;
+                    
+                    % Add first infconv part
+                    flexA1 = {Wi              ,-Id            ,-Wi          ,   Id,              ...
+                              obj.kappa*Dx    ,zeroOperator(N),-obj.kappa*Dx,   zeroOperator(N), ...
+                              obj.kappa*Dy    ,zeroOperator(N),-obj.kappa*Dy,   zeroOperator(N)                   };
+                    
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,4,flexA1),[i,i+1,nc+i,nc+i+1]);
+                    % Add second infconv part
+                    flexA2 = {obj.kappa*Wi  ,-obj.kappa*Id,...
+                              Dx            ,zeroOperator(N), ...
+                              Dy            ,zeroOperator(N)      };
+                    
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,2,flexA2),[nc+i,nc+i+1]);
+                end
+                % Build last infconv regularizer
+                flexA1 = {obj.kappa*Dx,-obj.kappa*Dx, ...
+                          obj.kappa*Dy,-obj.kappa*Dy      };
                 
-                % Add first infconv part
-                flexA1 = {Wi              ,-Id            ,-Wi          ,   Id,              ...
-                          obj.kappa*Dx    ,zeroOperator(N),-obj.kappa*Dx,   zeroOperator(N), ...
-                          obj.kappa*Dy    ,zeroOperator(N),-obj.kappa*Dy,   zeroOperator(N)                   };
+                obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,2,flexA1),[nc,2*nc]);
+                flexA2 = {Dx, ...
+                          Dy      };
                 
-                obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,4,flexA1),[i,i+1,nc+i,nc+i+1]);
-                % Add second infconv part
-                flexA2 = {obj.kappa*Wi  ,-obj.kappa*Id,...
-                          Dx            ,zeroOperator(N), ...
-                          Dy            ,zeroOperator(N)      };
+                obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,1,flexA2),2*nc);
+            elseif strcmp(obj.flowDirection,'backward')
+                for i = 1:nc-1
+                    % Get warp and identity
+                    Wi = warps{i}/obj.h;
+                    Id = Ids{i}/obj.h;
+                    
+                    % Add first infconv part
+                    flexA1 = {Id              ,-Wi            ,Id          ,   -Wi,              ...
+                              obj.kappa*Dx    ,zeroOperator(N),-obj.kappa*Dx,   zeroOperator(N), ...
+                              obj.kappa*Dy    ,zeroOperator(N),-obj.kappa*Dy,   zeroOperator(N)                   };
+                    
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,4,flexA1),[i,i+1,nc+i,nc+i+1]);
+                    % Add second infconv part
+                    flexA2 = {obj.kappa*Id  ,-obj.kappa*Wi,...
+                              Dx            ,zeroOperator(N), ...
+                              Dy            ,zeroOperator(N)      };
+                    
+                    obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,2,flexA2),[nc+i,nc+i+1]);
+                end
+                % Build last infconv regularizer
+                flexA1 = {obj.kappa*Dx,-obj.kappa*Dx, ...
+                    obj.kappa*Dy,-obj.kappa*Dy      };
                 
-                obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,2,flexA2),[nc+i,nc+i+1]); 
+                obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,2,flexA1),[nc,2*nc]);
+                flexA2 = {Dx, ...
+                          Dy      };
+                
+                obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,1,flexA2),2*nc);
+            else
+                error('todo')
             end
-            % Build last infconv regularizer
-            flexA1 = {obj.kappa*Dx,-obj.kappa*Dx, ...
-                      obj.kappa*Dy,-obj.kappa*Dy      };
-            
-            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,2,flexA1),[nc,2*nc]);
-            flexA2 = {Dx, ...
-                      Dy      };
-            
-            obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,1,flexA2),2*nc);
-            
             
             
             %%%% Set bicubic/VDSR estimation as start vector
@@ -706,13 +745,13 @@ classdef MultiframeMotionCoupling< handle
                     % alternate forward and backward:
                     if (mod(j,2)==1)
                         uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j),obj.imageSequenceSmall(:,:,j+1));
-                    else           
+                    else
                         uTmpSmall = cat(3,obj.imageSequenceSmall(:,:,j+1),obj.imageSequenceSmall(:,:,j));
                     end
                 else
                     error('Invalid flow direction.');
                 end
-                    
+                
                 
                 motionEstimator = motionEstimatorClass(uTmpSmall,1e-6,obj.beta);
                 motionEstimator.verbose = 0;
@@ -776,9 +815,9 @@ classdef MultiframeMotionCoupling< handle
                     wi           = obj.MMCsolver.getPrimal(obj.numFrames+i);
                     obj.u(:,:,i) = reshape(ui,obj.dimsLarge);
                     obj.w(:,:,i) = reshape(wi,obj.dimsLarge);
-                end 
+                end
             else % Vector valued flexBox
-                % Call flexBox 
+                % Call flexBox
                 obj.MMCsolver.runAlgorithm;
                 
                 % Extract solution
