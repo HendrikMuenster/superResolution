@@ -230,8 +230,8 @@ classdef MultiframeMotionCoupling< handle
             
             %%%% Create backend and options
             
-            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 10, ...
-                'sigma0', 0.1);                       % prost backend options
+            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 100, ...
+                'sigma0', 0.01);                       % prost backend options
             obj.opts.opts = prost.options('max_iters', 15000, 'num_cback_calls', 5,...
                 'verbose', true);%, ...
             %'tol_rel_primal', 1e-10, ...
@@ -307,7 +307,7 @@ classdef MultiframeMotionCoupling< handle
             GradOp = spmat_gradient2d(Nx, Ny, nc);
             gradPix = sum(abs(GradOp*u_up(:)))/numel(u_up);
             disp(['Gradient energy on bicubic (per pixel): ',num2str(gradPix)])
-            obj.h  = warpPix/gradPix;
+            obj.h  = warpPix/gradPix*1/8;
             
             %%%% Initialize prost variables and operators
             
@@ -345,7 +345,8 @@ classdef MultiframeMotionCoupling< handle
                 
                 % Add functions
                 obj.MMCsolver.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
-                obj.MMCsolver.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                %obj.MMCsolver.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.MMCsolver.add_function(p, prost.function.sum_1d('zero',1,0,1, obj.imageSequenceSmall(:), 0)); %l^1
                 obj.MMCsolver.add_function(g1, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha, 1, 1, 0, 0)); %l^{2,1}
                 obj.MMCsolver.add_function(g2, prost.function.sum_norm2(3, false, 'ind_leq0', 1/obj.alpha, 1, 1, 0, 0)); %l^{2,1}
                 
@@ -380,8 +381,9 @@ classdef MultiframeMotionCoupling< handle
                 obj.MMCsolver.add_dual_pair(u_vec, g2, prost.block.gradient2d(Nx, Ny,nc,false));
                 % add functions
                 obj.MMCsolver.add_function(u_vec,prost.function.sum_1d('ind_box01',1,0,1,0,0));
-                obj.MMCsolver.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
-                obj.MMCsolver.add_function(g1, prost.function.sum_1d('ind_box01', 1/(2*obj.alpha), -0.5, 1, 0, 0)); %l^1
+                %obj.MMCsolver.add_function(p, prost.function.sum_1d('ind_box01', 0.5, -0.5, 1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.MMCsolver.add_function(p, prost.function.sum_1d('zero',1,0,1, obj.imageSequenceSmall(:), 0)); %l^1
+                obj.MMCsolver.add_function(g1, prost.function.sum_1d('ind_box01', 1/2, -0.5, 1, 0, 0)); %l^1 %removed alpha for test
                 obj.MMCsolver.add_function(g2, prost.function.sum_norm2(2, false, 'ind_leq0', 1/obj.alpha, 1, 1, 0, 0)); %l^{2,1}
                 
             elseif obj.kappa ~= 1 && ~isnan(obj.kappa) && ~isempty(obj.u0_frame)
@@ -501,7 +503,7 @@ classdef MultiframeMotionCoupling< handle
             disp(['Gradient energy on bicubic (per pixel): ',num2str(gradPix)])
             obj.h  = warpPix/gradPix;
             
-            %%%% Initialize prost variables and operators
+            %%%% Initialize flexBox variables and operators
             obj.MMCsolver = flexBox;
             obj.MMCsolver.params.tol = 1e-4;
             obj.MMCsolver.params.tryCPP = 1;
@@ -602,7 +604,7 @@ classdef MultiframeMotionCoupling< handle
                 elseif strcmp(obj.flowDirection,'backward')
                     Wu(i) = sum(abs(Ids{i}*ui(:)-warps{i}*uj(:)));
                 elseif strcmp(obj.flowDirection,'forward-backward')
-                    eror('todo'); %% todoWu(i) = sum(abs(-Ids{i}*uj(:)+warps{i}*ui(:)));
+                    error('todo'); %% todoWu(i) = sum(abs(-Ids{i}*uj(:)+warps{i}*ui(:)));
                 else
                     error('');
                 end

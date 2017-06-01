@@ -64,8 +64,8 @@ if doJPEG
 end
 
 % Correct out-of-bounds values after sampling
-%imageSequenceSmall(imageSequenceSmall>1) = 1;
-%imageSequenceSmall(imageSequenceSmall<0) = 0;
+imageSequenceSmall(imageSequenceSmall>1) = 1;
+imageSequenceSmall(imageSequenceSmall<0) = 0;
 
 % return to old
 cd(olddir);

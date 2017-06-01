@@ -22,6 +22,8 @@ function [S] = samplingOperator(inputDims,targetDims,method,kernel,antialiasing)
 % 'lanczos2'    -> lanczos kernel based interpolation a = 2
 % 'lanczos3'    -> lanczos kernel based interpolation a = 3
 % 'pchip'       -> shape preserving piecewise cubic Hermite interpolating polynomial ('local cubic')
+% 'average'     -> 'averaging' block filter, taking the average over all pixels in the superpixel
+% 'stride'      -> the 'machine learning thing'. Start in the upper left corner and take each factor-th pixel
 %
 %
 % The boolean antialiasing calls the MATLAB antialiasing routine which widens the interpolation kernel
@@ -35,7 +37,7 @@ function [S] = samplingOperator(inputDims,targetDims,method,kernel,antialiasing)
 
 
 % Validate interpolation method
-validatestring(method,{'nearest','bilinear','bicubic','bicubic-0','lanczos2','lanczos3','pchip','custom','average'});
+validatestring(method,{'nearest','bilinear','bicubic','bicubic-0','lanczos2','lanczos3','pchip','custom','average','stride'});
 
 
 % Validate input arguments
@@ -132,6 +134,12 @@ elseif strcmp(method,'custom')
         eyeVector = zeros(1,inputDim); eyeVector(ii) = 1; % ii-th row of 2D identity
         S(ii,:) = imresize(eyeVector,1/factor,kernel,'Antialiasing',antialiasing); %#ok<SPRIX>
     end
+elseif strcmp(method,'stride')
+    
+    mcords = 1:factor:inputDim;
+    ncords = 1:targetDim;
+    S      = sparse(mcords,ncords,1,inputDim,targetDim); % is actually S'
+    
     
 end
 %disp(S(:,87)); % for debugging

@@ -11,18 +11,31 @@ classdef MultiframeMotionCouplingAlternating< MultiframeMotionCoupling
     %% Class properties:
     properties
         outerIts            % number of outer iterations
+        currentIt           % current outer iteration
+        psnrVals            % psnrVals for each frame per iteration
+        imageSequenceLarge  % for psnr check
        
     end
     
     %% Methods: 
     methods
         
+        %% decorate constructor
+        function obj = MultiframeMotionCouplingAlternating(imageSequenceSmall,imageSequenceLarge,varargin)
+            obj@MultiframeMotionCoupling(imageSequenceSmall,varargin);
+            obj.imageSequenceLarge = imageSequenceLarge;
+            obj.outerIts = 5;
+            obj.currentIt = 1;
+            obj.psnrVals = 0;
+        end
+        
         %% decorate init
         function init(obj)
             
-            if ~strcmp(obj.framework,'flexBox')
-                error('Alternating only in flexBox for now');
+            if ~strcmp(obj.framework,'prost')
+                error('Alternating only in prost for now');
             end
+            obj.psnrVals = zeros(obj.numFrames,obj.outerIts);
             init@MultiframeMotionCoupling(obj);
         end
         
@@ -93,29 +106,91 @@ classdef MultiframeMotionCouplingAlternating< MultiframeMotionCoupling
         
         %% update values in optimization problem
         function updateMMCsolver(obj)
-            % Construct warp operators and reduced identities
-            for i = 1:nc-1
-                
-                singleField = squeeze(obj.v(:,:,i,:));
-                Wi   = warpingOperator(obj.dimsLarge,singleField);
-                Id   = speye(N);
-                
-                % Remove out-of range warps
-                marker = sum(abs(Wi),2) == 0;
-                Wi(marker > 0,:) = 0;
-                Id(marker > 0,:) = 0; %#ok<SPRIX>
-                
-                warps{i} = Wi;  %#ok<AGROW>
-                Ids{i}   = Id;  %#ok<AGROW>
-            end
+            % Construct warp in specified direction
+                if strcmp(obj.flowDirection,'forward')
+                    warpingOp = constructWarpFF(obj.v,'F-I');
+                elseif strcmp(obj.flowDirection,'backward')
+                    warpingOp = constructWarpFF(obj.v,'I-F');
+                elseif strcmp(obj.flowDirection,'forward-backward')
+                    warpingOp = constructWarpFB(obj.v);
+                end
+                % Save to object
+                obj.warpOp = warpingOp;
+                if obj.verbose > 0
+                    disp('New warp operator constructed');
+                end
             
             % keep h fixed for new iterations !?!
             % h = obj.h
+            
+            % Create new operator blocks and insert into MMCsolver
+            if obj.kappa ~= 1 && ~isnan(obj.kappa) && isempty(obj.u0_frame)
+                u_g1_op = [warpingOp/obj.h;obj.kappa*spmat_gradient2d(Nx, Ny,nc)];
+                w_g1_op = -[warpingOp/obj.h;obj.kappa*spmat_gradient2d(Nx, Ny,nc)];
+                w_g2_op = [obj.kappa*warpingOp/obj.h;spmat_gradient2d(Nx, Ny,nc)];
+                
+                obj.MMCsolver.data.linop{1, 2}{1, 4}{1, 1}  = u_g1_op;
+                obj.MMCsolver.data.linop{1, 3}{1, 4}{1, 1}  = w_g1_op;
+                obj.MMCsolver.data.linop{1, 4}{1, 4}{1, 1}  = w_g2_op;
+            elseif obj.kappa == 1
+                u_g1_op = [warpingOp/obj.h;spmat_gradient2d(Nx, Ny,nc)];
+                
+                obj.MMCsolver.data.linop{1, 2}{1, 4}{1, 1}  = u_g1_op;
+                
+            elseif isnan(obj.kappa) 
+                obj.MMCsolver.data.linop{1, 2}{1, 4}{1, 1}  = warpingOp/obj.h;
+                
+            elseif obj.kappa ~= 1 && ~isnan(obj.kappa) && ~isempty(obj.u0_frame)
+                u_g1_op = [warpingOp/obj.h;obj.kappa*spmat_gradient2d(Nx, Ny,nc)];
+                w_g1_op = -[warpingOp/obj.h;obj.kappa*spmat_gradient2d(Nx, Ny,nc)];
+                w_g2_op = [obj.kappa*warpingOp/obj.h;spmat_gradient2d(Nx, Ny,nc)];
+                
+                obj.MMCsolver.data.linop{1, 2}{1, 4}{1, 1}  = u_g1_op;
+                obj.MMCsolver.data.linop{1, 3}{1, 4}{1, 1}  = w_g1_op;
+                obj.MMCsolver.data.linop{1, 4}{1, 4}{1, 1}  = w_g2_op;   
+            end
         end
         
         
-        % run multiple iterations
+        %% run multiple iterations
         function run(obj)
+            
+            % outer iteration, order is v0-u-v-u-v ...
+            % k is not updated
+            for jj=1:obj.outerIts
+               disp('Solving problem for u');
+               obj.currentIt = jj;
+               
+               obj.solveU;
+               obj.solveV;
+               obj.updateMMCsolver;
+               
+               obj.getPSNR;
+               disp(['-------Main Iteration ',num2str(jj),' finished!'])
+            end
+            
+            % Recompute RGB image in color mode
+            if obj.colorflag
+                obj.recomputeRGB
+            else
+                obj.result1 = obj.u;
+                obj.result2 = obj.w;
+            end
+            
+            disp('Algorithm finished !!');
+            
+        end
+        
+        
+        %% save psnr values of iteration
+        function getPSNR(obj)
+            
+            obj.recomputeRGB;
+            for ii = 1:obj.numFrames
+                outImage = mainSuper.result1(20:end-20,20:end-20,:,ii);
+                obj.psnrVals(ii,obj.currentIt) = round(psnr(outImage,obj.imageSequenceLarge(20:end-20,20:end-20,:,ii)),2);
+                %ssimErr(ii) = round(ssim(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ii)),3);
+            end
             
         end
     end
