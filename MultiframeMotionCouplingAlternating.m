@@ -22,7 +22,7 @@ classdef MultiframeMotionCouplingAlternating< MultiframeMotionCoupling
         
         %% decorate constructor
         function obj = MultiframeMotionCouplingAlternating(imageSequenceSmall,imageSequenceLarge,varargin)
-            obj@MultiframeMotionCoupling(imageSequenceSmall,varargin);
+            obj@MultiframeMotionCoupling(imageSequenceSmall);
             obj.imageSequenceLarge = imageSequenceLarge;
             obj.outerIts = 5;
             obj.currentIt = 1;
@@ -44,7 +44,7 @@ classdef MultiframeMotionCouplingAlternating< MultiframeMotionCoupling
         % todo for rewrite ...
         function solveV(obj) 
             if (obj.verbose > 0)
-                disp('Calculating initial velocity fields')
+                disp('Calculating new velocity fields')
             end
             
             
@@ -106,6 +106,13 @@ classdef MultiframeMotionCouplingAlternating< MultiframeMotionCoupling
         
         %% update values in optimization problem
         function updateMMCsolver(obj)
+            
+            % shorten some notation
+            temp = obj.dimsLarge;
+            Ny = temp(1);
+            Nx = temp(2);
+            nc =  obj.numFrames;
+            
             % Construct warp in specified direction
                 if strcmp(obj.flowDirection,'forward')
                     warpingOp = constructWarpFF(obj.v,'F-I');
@@ -187,10 +194,12 @@ classdef MultiframeMotionCouplingAlternating< MultiframeMotionCoupling
             
             obj.recomputeRGB;
             for ii = 1:obj.numFrames
-                outImage = mainSuper.result1(20:end-20,20:end-20,:,ii);
+                outImage = obj.result1(20:end-20,20:end-20,:,ii);
                 obj.psnrVals(ii,obj.currentIt) = round(psnr(outImage,obj.imageSequenceLarge(20:end-20,20:end-20,:,ii)),2);
                 %ssimErr(ii) = round(ssim(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ii)),3);
             end
+            
+            disp(['PSNR in current iterate is on average:',num2str(mean(obj.psnrVals(:,obj.currentIt)))]);
             
         end
     end

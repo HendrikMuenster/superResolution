@@ -1,9 +1,13 @@
-function warpingOp = constructWarpFB(v)
+function warpingOp = constructWarpFB(v,occ)
 %Create warp operator for FB scheme as seen in paper
 
 % Get sizes
 [Ny,Nx,n4,~] = size(v);
 nc =  n4+1;
+
+if nargin < 2
+    occ = [];
+end
 
 
 % create warping operator from given v
@@ -18,6 +22,14 @@ for i = 1:nc-1
     
     % find out of range warps in each of the operators and set the corresponding line in the other operator also to zero
     marker = sum(abs(warp),2) == 0;
+    
+    % find occlusion markers from optional occlusion map:
+    if ~isempty(occ)
+        marker_occ = sparse(vec(occ(:,:,i)));
+        marker = logical(marker+marker_occ); 
+    end
+    
+    
     warp(marker > 0,:) = 0;
     idOp(marker > 0,:) = 0; %#ok<SPRIX>
     
@@ -44,3 +56,7 @@ end
 warpingOp = sparse(spX,spY,spAlloc,Nx*Ny*nc,Nx*Ny*nc);
 end
 
+
+function x = vec(x)
+    x = x(:);
+end

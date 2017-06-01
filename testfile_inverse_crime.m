@@ -28,10 +28,9 @@ gtName = '/windows/DataJonas/ScieboLocalFolder/Data/VSR_Sun_dropbox/vsr_result/c
 % Load forward results
 interpMethod = 'stride';            % Downsampling operator D
 k = fspecial('gaussian',7,1.6);       % Blur operator B  
-[imageSequenceForward,imageSequenceLarge] = LoadImSequenceForward(gtName,startFrame,numFrames,factor,interpMethod,k);  
-%imageSequenceSmall = 1/255*double(uint8(imageSequenceForward*255)); % decrime test
-%disp_('Quantization error:',sum(abs(imageSequenceSmall(:)-imageSequenceForward(:)))/numel(imageSequenceSmall))
-imageSequenceSmall = imageSequenceForward;
+Quantize = false;
+[imageSequenceSmall,imageSequenceLarge] = LoadImSequenceForward(gtName,startFrame,numFrames,factor,interpMethod,k,Quantize);  
+
 
 %% Construct algorithm object
 % Input: RGB-Time matlab array 
@@ -47,10 +46,10 @@ mainSuper.framework     = 'prost';             % Choose framework for super reso
                                                % or 'prost', if installed
 
 % Problem parameters
-mainSuper.alpha         = 0.01;                % regularizer weight
+mainSuper.alpha         = 0.04;                % regularizer weight
 mainSuper.beta          = 0.2;                 % flow field complexity
-mainSuper.kappa         = 1;                % regularization pendulum
-mainSuper.flowDirection = 'forward';           % flow field direction
+mainSuper.kappa         = 0.1;                   % regularization pendulum
+mainSuper.flowDirection = 'backward';          % flow field direction
 
 % Operator details
 mainSuper.interpMethod = interpMethod;         % Downsampling operator D'average';%

@@ -45,7 +45,7 @@ end
 figure(5), imagesc(sum(abs(warpIm-im1),3));
 
 %% more more testing
-
+warpIm = [];
 singleField = squeeze(v(:,:,1,:));
 Wi   = warpingOperator([ny*4,nx*4],singleField);
 % Remove out-of range warps
@@ -58,15 +58,25 @@ for j = 1:3
     imj = im2(:,:,j);
     warpIm(:,:,j) = reshape(Wi*imj(:),size(imj));
 end
-figure(5), imagesc(sum(abs(warpIm-im1),3));
+figure(5), imagesc(sum(abs(warpIm-im1),3));caxis([0,1]);
 
 %% even more
-
+warpIm = [];
 im1 = imageSequenceLarge(:,:,:,1);
 im2 = imageSequenceLarge(:,:,:,2);
 for j = 1:3
     warpIm(:,:,j) = imwarp(im2(:,:,j),squeeze(v(:,:,1,:)),'cubic');
 end
-figure(5), imagesc(sum(abs(warpIm-im1),3)),axis image
+figure(5), imagesc(sum(abs(warpIm-im1),3)),axis image, caxis([0,1]);
 
 %these are actually occlusions in the dataset, see training/occlusions/bandage_1 !!!!!
+
+%% and moar (with occlusions now :>
+warpIm = [];
+for j = 1:3
+    imj = squeeze(imageSequenceLarge(:,:,j,:));
+    warpIm(:,:,j,:) = reshape(warpingOp*imj(:),[ny*4,nx*4,1,numFrames]);
+end
+figure, imagesc(sum(abs(warpIm(:,:,1)),3)),axis image, caxis([0,1]);
+
+% occlusions are almost gone for albedo dataset, but only decreased for clean and final

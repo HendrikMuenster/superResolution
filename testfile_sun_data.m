@@ -12,7 +12,7 @@ clearvars;
 
 %% Data properties
 
-startFrame = 15;
+startFrame = 1;
 numFrames = 18; 
 cslice = ceil(numFrames/2);
 

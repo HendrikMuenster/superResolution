@@ -6,71 +6,37 @@
 
 
 clearvars;
-addpath(genpath(cd)); 
-
+%addpath(genpath(cd)); 
+cd ~/MATLAB/superResolution
 
 
 %% Data properties
-datasetName = 'bandage_1_albedo';
+datasetName = 'surfer';
 
 startFrame = 1;
-numFrames = 13;
+numFrames = 5;
 cslice = ceil(numFrames/2);
 
 factor  = 4;             % Magnification factor
-
 
 
 %% ICCV paper data generation process 
 dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
 [imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor,'bicubic');   
 
-%% load gt flow
-flowFolder = '/windows/DataJonas/ScieboLocalFolder/Data/flow_scenes/';
-datasetName = 'bandage_1';
-[ny,nx,nc,nf] = size(imageSequenceSmall);
-v = zeros(ny*factor,nx*factor,nf-1,2);
-for i = 1:nf-1
-    vTmp = readFlowFile([flowFolder,filesep,datasetName,filesep,'frame_',num2str(i,'%04d'),'.flo']);
-    v(:,:,i,1) = vTmp(:,:,1);
-    v(:,:,i,2) = vTmp(:,:,2);
-end
-
-%% load occclusions
-occFolder = '/windows/DataJonas/ScieboLocalFolder/Data/occlusion_scenes/';
-datasetName = 'bandage_1';
-occ = zeros(ny*factor,nx*factor,nf-1);
-for i = 1:nf-1
-    occTmp = im2double(imread([occFolder,filesep,datasetName,filesep,'frame_',num2str(i,'%04d'),'.png']));
-    occ(:,:,i) = logical(occTmp);
-end
-
-%% construct occluded warp operator
-flowDir = 'backward';
-
-% Construct warp in specified direction with occlusions
-if strcmp(flowDir,'forward')
-    warpingOp = constructWarpFF(v,'F-I',occ);
-elseif strcmp(flowDir,'backward')
-    warpingOp = constructWarpFF(v,'I-F',occ);
-elseif strcmp(flowDir,'forward-backward')
-    warpingOp = constructWarpFB(v,occ);
-end
 
 
 %% Construct algorithm object
 % Input: RGB-Time matlab array 
-%mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'flowField',v);%without occlusions !
-%mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
-
-mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'warpOp',warpingOp);
+mainSuper = MultiframeMotionCouplingAlternating(imageSequenceSmall,imageSequenceLarge);
 
 %% Set variables (these are the standard parameters)
 
 % Procedure
+mainSuper.outerIts      = 15;
 mainSuper.factor        = factor;              % magnification factor
 mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
-mainSuper.framework     = 'prost';           % Choose framework for super resolution problem
+mainSuper.framework     = 'prost';    % Choose framework for super resolution problem
                                                % Either 'flexBox' or 'flexBox_vector'
                                                % or 'prost', if installed
 
@@ -78,7 +44,7 @@ mainSuper.framework     = 'prost';           % Choose framework for super resolu
 mainSuper.alpha         = 0.01;                % regularizer weight
 mainSuper.beta          = 0.2;                 % flow field complexity
 mainSuper.kappa         = 0.25;                % regularization pendulum
-mainSuper.flowDirection = flowDir;           % flow field direction 
+mainSuper.flowDirection = 'forward';           % flow field direction
 
 % Operator details
 mainSuper.interpMethod = 'average';            % Downsampling operator D
@@ -114,7 +80,3 @@ else
 end
 %% 
 disp('---------------------------------------------------------------------')
-%
-% Results are not much better - why ??
-%
-% 

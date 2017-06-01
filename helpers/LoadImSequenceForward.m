@@ -1,4 +1,4 @@
-function [imageSequenceSmall,imageSequenceLarge] = LoadImSequenceForward(datastr,startFrame,numFrames,factor,interpMethod,kernel)
+function [imageSequenceSmall,imageSequenceLarge] = LoadImSequenceForward(datastr,startFrame,numFrames,factor,interpMethod,kernel,Quantize)
 % load  image sequence from folder datastr
 % downsample, trim and return
 
@@ -47,6 +47,12 @@ end
 
 % return to old
 cd(olddir);
+
+if Quantize
+    imageSequenceFwd = 1/255*double(uint8(imageSequenceSmall*255)); % decrime test
+    disp_('Quantization error:',sum(abs(imageSequenceSmall(:)-imageSequenceFwd(:)))/numel(imageSequenceSmall))
+    imageSequenceSmall = imageSequenceFwd;
+end
 
 
 end
