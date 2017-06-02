@@ -6,12 +6,12 @@
 
 
 clearvars;
-addpath(genpath(cd)); 
+%addpath(genpath(cd)); 
 
 
 
 %% Data properties
-datasetName = 'bandage_1_albedo';
+datasetName = 'bandage_1_clean';
 
 startFrame = 1;
 numFrames = 13;
@@ -61,9 +61,9 @@ end
 %% Construct algorithm object
 % Input: RGB-Time matlab array 
 %mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'flowField',v);%without occlusions !
-%mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
+mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
 
-mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'warpOp',warpingOp);
+%mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'warpOp',warpingOp);
 
 %% Set variables (these are the standard parameters)
 
@@ -77,7 +77,7 @@ mainSuper.framework     = 'prost';           % Choose framework for super resolu
 % Problem parameters
 mainSuper.alpha         = 0.01;                % regularizer weight
 mainSuper.beta          = 0.2;                 % flow field complexity
-mainSuper.kappa         = 0.25;                % regularization pendulum
+mainSuper.kappa         = 0.5;                % regularization pendulum
 mainSuper.flowDirection = flowDir;           % flow field direction 
 
 % Operator details
@@ -107,8 +107,8 @@ disp(['SSIM (central patch, central slice): ',num2str(ssimErr),' ']);
 
 %% Visualize either central image or full video
 if mainSuper.verbose > 0
-     vid = implay(mainSuper.result1,2);  
-     set(vid.Parent, 'Position',get(0, 'Screensize'));
+     %vid = implay(mainSuper.result1,2);  
+     %set(vid.Parent, 'Position',get(0, 'Screensize'));
 else
     figure(1), imshow(outImage); title(['PSNR: ', num2str(psnrErr)]); axis image
 end
@@ -118,3 +118,14 @@ disp('---------------------------------------------------------------------')
 % Results are not much better - why ??
 %
 % 
+
+%% Compare total psnr/ssim
+for ii = 1:numFrames
+    outImage = mainSuper.result1(20:end-20,20:end-20,:,ii);
+    psnrErr(ii) = round(psnr(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ii)),2);
+    %ssimErr(ii) = round(ssim(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ii)),3);
+end
+figure(1), hold on,
+plot(startFrame:startFrame+numFrames-1,psnrErr), title(['PSNR (mean): ',num2str(mean(psnrErr))]);
+%figure(2),plot(startFrame:startFrame+numFrames-1,ssimErr),title(['SSIM (mean):',num2str(mean(ssimErr))]);
+legend('albedo GT','albedo OF','clean GT','clean OF','final GT','final OF');

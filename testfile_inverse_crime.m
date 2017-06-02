@@ -24,12 +24,13 @@ gtName = '/windows/DataJonas/ScieboLocalFolder/Data/VSR_Sun_dropbox/vsr_result/c
 %gtName = '/windows/DataJonas/ScieboLocalFolder/Data/VSR_Sun_dropbox/vsr_result/people/original';
 %gtName = '/windows/DataJonas/ScieboLocalFolder/Data/VSR_Sun_dropbox/vsr_result/mobile/original';
 
-
+datasetName = '/windows/DataJonas/ScieboLocalFolder/Data/VSR_Sun_dropbox/vsr_result/city_org_I420/input'; % 33 frames
+[imageSequenceSmall] = LoadImSequenceReal(datasetName,startFrame,numFrames);   
 % Load forward results
 interpMethod = 'stride';            % Downsampling operator D
 k = fspecial('gaussian',7,1.6);       % Blur operator B  
-Quantize = false;
-[imageSequenceSmall,imageSequenceLarge] = LoadImSequenceForward(gtName,startFrame,numFrames,factor,interpMethod,k,Quantize);  
+Quantize = true;
+%[imageSequenceSmall,imageSequenceLarge] = LoadImSequenceForward(gtName,startFrame,numFrames,factor,interpMethod,k,Quantize);  
 
 
 %% Construct algorithm object
@@ -46,9 +47,9 @@ mainSuper.framework     = 'prost';             % Choose framework for super reso
                                                % or 'prost', if installed
 
 % Problem parameters
-mainSuper.alpha         = 0.04;                % regularizer weight
+mainSuper.alpha         = 0.01;                % regularizer weight
 mainSuper.beta          = 0.2;                 % flow field complexity
-mainSuper.kappa         = 0.1;                   % regularization pendulum
+mainSuper.kappa         = 0.25;                   % regularization pendulum
 mainSuper.flowDirection = 'backward';          % flow field direction
 
 % Operator details
