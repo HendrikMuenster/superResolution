@@ -1,6 +1,6 @@
 [submodule "flexBox"]
 	path = flexBox
-	url = https://github.com/HendrikMuenster/flexBox.git
+	url = https://github.com/HendrikMuenster/flexBox
 [submodule "motionEstimationGUI"]
 	path = motionEstimationGUI
 	url = https://github.com/HendrikMuenster/motionEstimationGUI
