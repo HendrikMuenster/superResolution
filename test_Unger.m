@@ -1,6 +1,8 @@
 %
 % Video Super Resolution
 
+addpath(genpath(cd))
+
 clearvars;
 
 
@@ -15,7 +17,7 @@ cslice = ceil(numFrames/2);
 factor = 4;                         % magnification factor
 
 %% Load Video and code
-dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
+dataFolder = 'D:\Dropbox\Uni\Projects\2016 - SuperResolutionMunich\superResolutionData';
 [imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor,'bicubic',0);   
 
 

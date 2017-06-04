@@ -91,10 +91,10 @@ for i = 1:numFrames
 end
 
 % Add regularizer
-%SMC.addTerm(huberGradient(alpha,[yLarge,xLarge],h_eps),u_id);% not implemented on GPU :<
+SMC.addTerm(huberGradient(alpha,[yLarge,xLarge],h_eps),u_id);% not implemented on GPU :<
 
-Grad = spmat_gradient2d(yLarge,xLarge,1);
-SMC.addTerm(huberDataTermOperator(alpha,Grad,zeros(yLarge,xLarge,2),h_eps),u_id);
+%Grad = spmat_gradient2d(yLarge,xLarge,1);
+%SMC.addTerm(huberDataTermOperator(alpha,Grad,zeros(yLarge,xLarge,2),h_eps),u_id);
 
 disp('Single frame motion coupling initialized')
 tic;
