@@ -20,8 +20,8 @@ cslice = ceil(numFrames/2);
 
 factor = 4;       % Magnification factor
 
-%% ICCV paper data generation process 
-dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
+%% Data generation process from paper:
+dataFolder = 'insertyourfolderhere';
 [imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor,'bicubic');   
 
 

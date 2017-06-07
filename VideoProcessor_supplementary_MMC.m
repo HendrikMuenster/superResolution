@@ -124,7 +124,7 @@ for ii = 1:length(data)
         
         if kk ~=batchCount  
             % Find ids of current batch
-            fileNames = ((kk-1)*(batchSize-overlap)+1) : ((kk-1)*(batchSize-overlap)+batchSize)
+            fileNames = ((kk-1)*(batchSize-overlap)+1) : ((kk-1)*(batchSize-overlap)+batchSize);
             
             % Read image sequence batch
             imageSequenceSmall = zeros(xSmall,ySmall,3,batchSize);
@@ -133,7 +133,7 @@ for ii = 1:length(data)
             end    
         else
             % Find remaining ids
-            fileNames = (numFramesTotal-batchEnd+1) : numFramesTotal 
+            fileNames = (numFramesTotal-batchEnd+1) : numFramesTotal;
             
             % Read remaining image sequence
             imageSequenceSmall = zeros(xSmall,ySmall,3,batchEnd);
@@ -141,50 +141,50 @@ for ii = 1:length(data)
                 imageSequenceSmall(:,:,:,jj) = im2double(imread([dataAdress,fileStruct(fileNames(jj)).name]));
             end
         end
-%         mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'u0_frame',u0_frame,'w0_frame',w0_frame);
-%         mainSuper.factor         = factor;       % magnification factor
-%         mainSuper.verbose        = 1;            % enable intermediate output, 1 is text, 2 is image
-%         
-%         % Problem parameters
-%         mainSuper.alpha          = 0.01;                % temporal weight
-%         mainSuper.beta           = 0.2;                 % flow field complexity
-%         mainSuper.kappa          = 0.25;                % regularization pendulum
-%         mainSuper.flowDirection  = 'forward';
-% 
-%         % Operator details
-%         mainSuper.interpMethod   = 'average';
-%         mainSuper.k              = fspecial('gaussian',7,sqrt(0.6));
-%         % Run the thing
-%         mainSuper.init;
-%         mainSuper.run;
-%         
-%         % write output images
-%         for jj = 1:length(fileNames)
-%             out_id = fileNames;
-%             imwrite(mainSuper.result1(:,:,:,jj),[dataFolder,filesep,data{ii},out_name,'/standard/Frame',num2str(out_id(jj),'%03d'),'.png']);
-%             imwrite(mainSuper.result2(:,:,:,jj),[dataFolder,filesep,data{ii},out_name,'/tmpStab/Frame',num2str(out_id(jj),'%03d'),'.png']);
-%             uw = mainSuper.u(:,:,jj)-mainSuper.w(:,:,jj);
-%             w = mainSuper.w(:,:,jj);
-%             
-%             % align uw to first frame
-%             if kk== 1 && jj == 1 % first frame
-%                 uw_min = min(uw(:)); uw_max = max(uw(:))-uw_min;
-%             end
-%             % align w to some rough bounds
-%             w_min = -0.25; w_max = 0.5;
-%             % Fit to [0,1]
-%             uw = (uw-uw_min)/uw_max;
-%             w = (w-w_min)/w_max;
-% 
-%             imwrite(uw,[dataFolder,filesep,data{ii},out_name,'/uw/Frame',num2str(out_id(jj),'%03d'),'.png']);
-%             imwrite(w,[dataFolder,filesep,data{ii},out_name,'/w/Frame',num2str(out_id(jj),'%03d'),'.png']);
-%         end
-%         
-%         % get fix frames for next iteration
-%         u0_frame = mainSuper.u(:,:,end);
-%         w0_frame = mainSuper.w(:,:,end);
-% 
-%         
-%         clear imageSequenceSmall
+        mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'u0_frame',u0_frame,'w0_frame',w0_frame);
+        mainSuper.factor         = factor;       % magnification factor
+        mainSuper.verbose        = 1;            % enable intermediate output, 1 is text, 2 is image
+        
+        % Problem parameters
+        mainSuper.alpha          = 0.01;                % temporal weight
+        mainSuper.beta           = 0.2;                 % flow field complexity
+        mainSuper.kappa          = 0.25;                % regularization pendulum
+        mainSuper.flowDirection  = 'forward';
+
+        % Operator details
+        mainSuper.interpMethod   = 'average';
+        mainSuper.k              = fspecial('gaussian',7,sqrt(0.6));
+        % Run the thing
+        mainSuper.init;
+        mainSuper.run;
+        
+        % write output images
+        for jj = 1:length(fileNames)
+            out_id = fileNames;
+            imwrite(mainSuper.result1(:,:,:,jj),[dataFolder,filesep,data{ii},out_name,'/standard/Frame',num2str(out_id(jj),'%03d'),'.png']);
+            imwrite(mainSuper.result2(:,:,:,jj),[dataFolder,filesep,data{ii},out_name,'/tmpStab/Frame',num2str(out_id(jj),'%03d'),'.png']);
+            uw = mainSuper.u(:,:,jj)-mainSuper.w(:,:,jj);
+            w = mainSuper.w(:,:,jj);
+            
+            % align uw to first frame
+            if kk== 1 && jj == 1 % first frame
+                uw_min = min(uw(:)); uw_max = max(uw(:))-uw_min;
+            end
+            % align w to some rough bounds
+            w_min = -0.25; w_max = 0.5;
+            % Fit to [0,1]
+            uw = (uw-uw_min)/uw_max;
+            w = (w-w_min)/w_max;
+
+            imwrite(uw,[dataFolder,filesep,data{ii},out_name,'/uw/Frame',num2str(out_id(jj),'%03d'),'.png']);
+            imwrite(w,[dataFolder,filesep,data{ii},out_name,'/w/Frame',num2str(out_id(jj),'%03d'),'.png']);
+        end
+        
+        % get fix frames for next iteration
+        u0_frame = mainSuper.u(:,:,end);
+        w0_frame = mainSuper.w(:,:,end);
+
+        
+        clear imageSequenceSmall
     end
 end
