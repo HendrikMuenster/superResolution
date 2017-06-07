@@ -37,7 +37,7 @@ If necessary, run cmake-gui instead of cmake to easily set manual options (e.g. 
 
 
 ## Usage
-For a quick example, given a video as a 4-D matlab array 'videoSeq' that we want to upsample by a factor of 4,
+For a quick example, given a video as a 4-D matlab array 'videoLowRes' that we want to upsample by a factor of 4,
 run the following commands in MATLAB:
 ```
 MMC = MultiframeMotionCoupling(videoLowRes);
