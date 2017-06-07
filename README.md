@@ -51,14 +51,15 @@ Check the testfile.m for further instructions.
 
 ## Reference
 While the article is under review, refer to
-@Article{dirks2015flexbox,
-  Title         = {A Flexible Primal-Dual Toolbox},
+```
+@Article{MMC,
+  Title         = {Multiframe Motion Coupling via Infimal Convolution Regularization
+                   for Video Super Resolution},
   Author        = { Hendrik Dirks Jonas Geiping and Daniel Cremers and Michael Moeller},
-  title     = {Multiframe Motion Coupling via Infimal Convolution Regularization
-               for Video Super Resolution,}
   Journal       = {ArXiv e-prints},
+  url           = {http://arxiv.org/abs/1611.07767}
   Year          = {2016},
-  Month         = mar,
-  Keywords      = {Mathematics - Optimization and Control, Computer Science - Computer Vision and Pattern Recognition, Computer Science - Mathematical Software, I.4, G.1.6, G.4},
-  Primaryclass  = {math.OC}
+  Month         = dec,
+  Primaryclass  = {cs.CV}
 }
+```
