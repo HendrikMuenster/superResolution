@@ -5,15 +5,15 @@
 % following their instructions
 
 
-clearvars;
+%clearvars;
 %addpath(genpath(cd)); 
 cd ~/MATLAB/superResolution
 
 
 %% Data properties
 
-startFrame = 15;
-numFrames = 18; 
+startFrame = 1;
+numFrames = 16; 
 cslice = ceil(numFrames/2);
 
 factor  = 4;             % Magnification factor
@@ -26,12 +26,13 @@ gtName = '/windows/DataJonas/ScieboLocalFolder/Data/VSR_Sun_dropbox/vsr_result/c
 
 datasetName = '/windows/DataJonas/ScieboLocalFolder/Data/VSR_Sun_dropbox/vsr_result/city_org_I420/input'; % 33 frames
 [imageSequenceSmall] = LoadImSequenceReal(datasetName,startFrame,numFrames);   
+
 % Load forward results
 interpMethod = 'stride';            % Downsampling operator D
 k = fspecial('gaussian',7,1.6);       % Blur operator B  
 Quantize = true;
-%[imageSequenceSmall,imageSequenceLarge] = LoadImSequenceForward(gtName,startFrame,numFrames,factor,interpMethod,k,Quantize);  
-
+[~,imageSequenceLarge] = LoadImSequenceForward(gtName,startFrame,numFrames,factor,interpMethod,k,Quantize);  
+% actually donÄ't use them, use only the given sequence from Liu&Sun
 
 %% Construct algorithm object
 % Input: RGB-Time matlab array 
@@ -104,8 +105,10 @@ for ii = 1:numFrames
     psnrErr(ii) = round(psnr(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ii)),2);
     %ssimErr(ii) = round(ssim(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ii)),3);
 end
-uiopen('/home/vsa_jonas/MATLAB/superResolution/liuSun_psnr_city.fig',1), hold on
-plot(startFrame:startFrame+numFrames-1,psnrErr), title(['PSNR (mean): ',num2str(mean(psnrErr))]);
-%figure(2),plot(startFrame:startFrame+numFrames-1,ssimErr),title(['SSIM (mean):',num2str(mean(ssimErr))]);
-legend('LiuSun','Ours','Location','northwest')
-hold off
+%uiopen('/home/vsa_jonas/MATLAB/superResolution/liuSun_psnr_city.fig',1),
+% figure(1),
+% hold on
+% plot(startFrame:startFrame+numFrames-1,psnrErr), title(['PSNR (mean): ',num2str(mean(psnrErr))]);
+% %figure(2),plot(startFrame:startFrame+numFrames-1,ssimErr),title(['SSIM (mean):',num2str(mean(ssimErr))]);
+% legend('LiuSun','Ours-standard','ours additive','Location','northwest')
+disp_('average psnr: ',mean(psnrErr))

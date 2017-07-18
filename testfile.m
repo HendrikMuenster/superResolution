@@ -5,16 +5,16 @@
 % following their instructions
 
 
-clearvars;
-addpath(genpath(cd)); 
+%clearvars;
+%addpath(genpath(cd)); 
 
 
 
 %% Data properties
-datasetName = 'surferdog';
+datasetName = 'city';
 
-startFrame = 1;
-numFrames = 7;
+startFrame = 14;
+numFrames = 20;
 cslice = ceil(numFrames/2);
 
 factor  = 4;             % Magnification factor
@@ -22,7 +22,10 @@ factor  = 4;             % Magnification factor
 
 %% ICCV paper data generation process 
 dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
-[imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor,'bicubic');   
+
+datasetName = '/windows/DataJonas/ScieboLocalFolder/Data/VSR_Sun_dropbox/vsr_result/city_org_I420/input'; % 33 frames
+[imageSequenceSmall,imageSequenceLarge] = LoadImSequence(datasetName,startFrame,numFrames,factor,'bicubic');   
+%[imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor,'bicubic');   
 
 
 
@@ -79,3 +82,9 @@ else
 end
 %% 
 disp('---------------------------------------------------------------------')
+    for ii = 1:numFrames
+        outImage = mainSuper.result1(20:end-20,20:end-20,:,ii);
+        psnrErrFrames(13+ii) = psnr(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ii));
+        ssimErrFrames(13+ii) = ssim(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ii));
+    end
+    

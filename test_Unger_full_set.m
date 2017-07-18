@@ -34,10 +34,10 @@ for kk = 1:length(dataset)
     %% Show error margin
     
     outImage = imgSR(20:end-20,20:end-20,:);
-    psnrErr = psnr(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ceil(numFrames/2)));
-    ssimErr = ssim(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ceil(numFrames/2)));
-    disp(['PSNR : ',num2str(psnrErr),' dB']);
-    disp(['SSIM : ',num2str(ssimErr),' ']);
+    psnrErr(kk) = psnr(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ceil(numFrames/2))); %#ok<*SAGROW>
+    ssimErr(kk) = ssim(outImage,imageSequenceLarge(20:end-20,20:end-20,:,ceil(numFrames/2)));
+    disp(['PSNR : ',num2str(psnrErr(kk)),' dB']);
+    disp(['SSIM : ',num2str(ssimErr(kk)),' ']);
     
     figure(1), imshow(outImage); title(['PSNR: ', num2str(psnrErr)]); axis image
     drawnow;
