@@ -1,11 +1,11 @@
-function imgSR = singleframeMotionSR(imageSequenceSmall,factor,alpha,beta)
+function imgSR = singleframeMotionSR_mitzel(imageSequenceSmall,factor,alpha,beta)
 % Unger - Werlberger algorithm
 %
 
 
 
 %% 1) Init
-tic
+%tic
 [ySmall,xSmall,nColors,numFrames] = size(imageSequenceSmall);
 yLarge = ySmall*factor; xLarge = xSmall*factor;
 
@@ -33,7 +33,7 @@ for i = 1:numFrames
     if i == central_slice
         continue
     end
-    uTmp = cat(3,J1(:,:,i),J1(:,:,central_slice));
+    uTmp = cat(3,J0(:,:,i),J0(:,:,central_slice));
     motionEstimator = motionEstimatorClass(uTmp,1e-6,beta);
     % optical flow parameters
     motionEstimator.verbose = 0;
@@ -42,15 +42,15 @@ for i = 1:numFrames
     motionEstimator.doGradientConstancy = 1;
     motionEstimator.doGaussianSmoothing = 1;
     motionEstimator.medianFiltering = 1;
-    motionEstimator.steplength = 0.9;
-    motionEstimator.numberOfWarps = 5;
+    motionEstimator.steplength = 0.8;
+    motionEstimator.numberOfWarps = 3;
     % run OF
     motionEstimator.init;
     motionEstimator.runPyramid;
     
     vTmp = motionEstimator.getResult;
-    v(:,:,i,2) = vTmp(:,:,1,1);
-    v(:,:,i,1) = vTmp(:,:,1,2);
+    v(:,:,i,2) = factor*imresize(vTmp(:,:,1,1),factor);
+    v(:,:,i,1) = factor*imresize(vTmp(:,:,1,2),factor);
     disp(['Optical Flow to frame ',num2str(i),' computed']);
 end
 
@@ -71,10 +71,10 @@ kernel = @(x) double(abs(x)<=2)/4;
 D = samplingOperator([yLarge,xLarge],[ySmall,xSmall],'custom',{kernel,width},false);
 sigm_Unger = 0.25*sqrt(factor^2-1);
 B  = RepConvMtx(fspecial('gaussian',7,sigm_Unger),[yLarge,xLarge]);
-toc 
+%toc 
 
 %% 2) Build flexBox object and solve
-tic
+%tic
 SMC = flexBox;
 SMC.params.tol = 1e-4;
 SMC.params.tryCPP = 1;
@@ -87,23 +87,23 @@ u_id = SMC.addPrimalVar([yLarge,xLarge]);
 
 % Add data terms
 for i = 1:numFrames
-    SMC.addTerm(huberDataTermOperator(1,D*B*warp{i},J0(:,:,i),h_eps),u_id);
+    SMC.addTerm(L1dataTermOperator(1,D*B*warp{i},J0(:,:,i)),u_id);
 end
 
 % Add regularizer
-SMC.addTerm(huberGradient(alpha,[yLarge,xLarge],h_eps),u_id);% not implemented on GPU :<
+SMC.addTerm(L1gradientIso(alpha,[yLarge,xLarge]),u_id);%
 
 %Grad = spmat_gradient2d(yLarge,xLarge,1);
 %SMC.addTerm(huberDataTermOperator(alpha,Grad,zeros(yLarge,xLarge,2),h_eps),u_id);
 
 disp('Single frame motion coupling initialized')
-tic;
+%tic;
 SMC.runAlgorithm;
-toc;
+%toc;
 
 I = SMC.getPrimal(u_id);
 
-toc
+%toc
 %% 3) Finalize
 
 % Reconvert to YCbCr

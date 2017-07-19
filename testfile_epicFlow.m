@@ -27,7 +27,7 @@ cslice = ceil(numFrames/2);
 
 factor = 4;       % Magnification factor
 
-%% ICCV paper data generation process 
+%% Data generation process 
 dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
 [imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor,'bicubic');   
 
@@ -82,7 +82,7 @@ mainSuper.verbose       = 1;                   % enable intermediate output, 1 i
 mainSuper.alpha         = 0.01;                % regularizer weight
 mainSuper.beta          = 0.2;                 % flow field complexity
 mainSuper.kappa         = 0.25;                % regularization pendulum
-mainSuper.flowDirection = 'forward';           % flow field direction
+mainSuper.flowDirection = 'backward';           % flow field direction
 
 % Operator details
 mainSuper.interpMethod = 'average';            % Downsampling operator D

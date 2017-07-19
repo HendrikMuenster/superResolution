@@ -510,6 +510,7 @@ classdef MultiframeMotionCoupling< handle
             obj.MMCsolver.params.tryCPP = 1;
             obj.MMCsolver.params.verbose = 1;
             obj.MMCsolver.params.maxIt = 10000;
+            obj.MMCsolver.params.checkError = 10;
             
             % Add primal variables u and w
             obj.MMCsolver.addPrimalVar([Ny,Nx,nc]); % u
@@ -556,10 +557,14 @@ classdef MultiframeMotionCoupling< handle
             
             % Build downsampling matrix
             dsOp = samplingOperator(obj.dimsLarge,obj.dimsSmall,obj.interpMethod,obj.interpKernel,obj.interpAA);
+            %dsOp = superpixelOperator(obj.dimsSmall,obj.factor);
             
             % Add blur matrix
             if ~isempty(obj.k) || isscalar(obj.k)
+                %dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
+                %blurOp = convolutionOperator([Ny,Nx],7,sqrt(0.6)); % not supported in flexBoxC++
                 dsOp = dsOp*RepConvMtx(obj.k,obj.dimsLarge);
+                %dsOp  = concatOperator(dsOp,RepConvMtx(obj.k,obj.dimsLarge),'composition'); %slower than * (?)
             end
             
             if obj.verbose > 0
@@ -571,12 +576,12 @@ classdef MultiframeMotionCoupling< handle
                 
                 singleField = squeeze(obj.v(:,:,i,:));
                 Wi   = warpingOperator(obj.dimsLarge,singleField);
-                Id   = speye(N);
+                Id   = ones(N,1);
                 
                 % Remove out-of range warps
                 marker = sum(abs(Wi),2) == 0;
                 Wi(marker > 0,:) = 0;
-                Id(marker > 0,:) = 0; %#ok<SPRIX>
+                Id(marker > 0) = 0; 
                 
                 warps{i} = Wi;  %#ok<AGROW>
                 Ids{i}   = Id;  %#ok<AGROW>
@@ -585,7 +590,8 @@ classdef MultiframeMotionCoupling< handle
             % Build gradient matrices
             D = spmat_gradient2d(Nx, Ny,1);
             Dx = D(1:Nx*Ny,:); Dy = D(Nx*Ny+1:end,:);
-            
+            %Dx = gradientOperator([Ny,Nx],2);
+            %Dy = gradientOperator([Ny,Nx],1);
             
             %%%% Compute adaptive parameter h
             
@@ -601,9 +607,9 @@ classdef MultiframeMotionCoupling< handle
                 uj = u_up(:,:,i+1);
                 Du(i) = sum(abs(Dx*ui(:))+abs(Dy*ui(:)));
                 if strcmp(obj.flowDirection,'forward')
-                    Wu(i) = sum(abs(-Ids{i}*uj(:)+warps{i}*ui(:)));
+                    Wu(i) = sum(abs(-Ids{i}.*uj(:)+warps{i}*ui(:)));
                 elseif strcmp(obj.flowDirection,'backward')
-                    Wu(i) = sum(abs(Ids{i}*ui(:)-warps{i}*uj(:)));
+                    Wu(i) = sum(abs(Ids{i}.*ui(:)-warps{i}*uj(:)));
                 elseif strcmp(obj.flowDirection,'forward-backward')
                     error('todo'); %% todoWu(i) = sum(abs(-Ids{i}*uj(:)+warps{i}*ui(:)));
                 else
@@ -622,10 +628,11 @@ classdef MultiframeMotionCoupling< handle
             %%%% initialize flexBox solver
             
             obj.MMCsolver = flexBox;
-            obj.MMCsolver.params.tol = 1e-4;
+            obj.MMCsolver.params.tol = 5e-4;
             obj.MMCsolver.params.tryCPP = 1;
             obj.MMCsolver.params.verbose = 1;
-            obj.MMCsolver.params.maxIt = 10000;
+            obj.MMCsolver.params.maxIt = 2500;
+            obj.MMCsolver.params.checkError = 1;
             
             % Add primal variables u and w
             for i = 1:2*nc
@@ -648,7 +655,8 @@ classdef MultiframeMotionCoupling< handle
                 for i = 1:nc-1
                     % Get warp and identity
                     Wi = warps{i}/obj.h;
-                    Id = Ids{i}/obj.h;
+                    %Id = diagonalOperator(Ids{i}/obj.h/obj.kappa);
+                    Id = spdiags(Ids{i}/obj.h,0,N,N);
                     
                     % Add first infconv part
                     flexA1 = {Wi              ,-Id            ,-Wi          ,   Id,              ...
@@ -657,7 +665,9 @@ classdef MultiframeMotionCoupling< handle
                     
                     obj.MMCsolver.addTerm(L1operatorIso(obj.alpha,4,flexA1),[i,i+1,nc+i,nc+i+1]);
                     % Add second infconv part
-                    flexA2 = {obj.kappa*Wi  ,-obj.kappa*Id,...
+                    %Id = diagonalOperator(-obj.kappa*Ids{i}/obj.h);
+                    Id = spdiags(-obj.kappa*Ids{i}/obj.h,0,N,N);
+                    flexA2 = {obj.kappa*Wi  ,Id,...
                               Dx            ,zeroOperator(N), ...
                               Dy            ,zeroOperator(N)      };
                     
@@ -676,7 +686,7 @@ classdef MultiframeMotionCoupling< handle
                 for i = 1:nc-1
                     % Get warp and identity
                     Wi = warps{i}/obj.h;
-                    Id = Ids{i}/obj.h;
+                    Id = spdiags(Ids{i}/obj.h,0,N,N);
                     
                     % Add first infconv part
                     flexA1 = {Id              ,-Wi            ,Id          ,   -Wi,              ...
@@ -768,8 +778,8 @@ classdef MultiframeMotionCoupling< handle
                 % Pyramid scheme parameters:
                 motionEstimator.doGaussianSmoothing = 1;
                 motionEstimator.medianFiltering = 1;
-                motionEstimator.numberOfWarps = 5;
-                motionEstimator.steplength = 0.9;
+                motionEstimator.numberOfWarps = 3;
+                motionEstimator.steplength = 0.8;
                 
                 % Run motion estimator
                 motionEstimator.init;

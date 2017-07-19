@@ -7,19 +7,24 @@
 
 clearvars;
 %addpath(genpath(cd)); use floated flexBox
-
+    if exist('statblock.mat','file')
+        load('statblock.mat');
+	startHere = statblock.iterDone+1;
+    else
+	startHere = 1;
+    end
 
 
 %% Data properties
-data = {'tube3','city','foreman','walk','foliage','calendar','surfer','surferdog','penguin','temple','sheets','wave'};
+data = {'tube3','city','calendar_high','foliage_high','walk_high','foreman','temple','penguins','sheets','surfer','wave','surferdog'};
 dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
-writeFolder = '/windows/DataJonas/ScieboLocalFolder/Data/MMC_result/';
+writeFolder = '/windows/DataJonas/ScieboLocalFolder/Data/MMC_result';
 startFrame = 1;
 numFramesList = [ones(6,1)*13;ones(6,1)*5];
 factor  = 4;             % Magnification factor
-vl_setupnn();
+%vl_setupnn();
 %% Run the thing
-for kk = 1:length(data)
+for kk = startHere:length(data)
     disp_('Running on dataset',data{kk}, '.........')
     numFrames = numFramesList(kk);
     
@@ -32,7 +37,10 @@ for kk = 1:length(data)
     
     % Load images
     [imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,data{kk}],startFrame,numFrames,factor,'bicubic');
-    
+    % Write input
+    for ii = 1:numFrames
+        imwrite(imageSequenceSmall(:,:,:,ii),[writeFolder,filesep,data{kk},'/input/','Frame',num2str(ii,'%03d'),'.png']);
+    end
     
     
     %% Construct algorithm object
@@ -51,20 +59,20 @@ for kk = 1:length(data)
     mainSuper.alpha         = 0.01;                % regularizer weight
     mainSuper.beta          = 0.2;                 % flow field complexity
     mainSuper.kappa         = 0.25;                % regularization pendulum
-    mainSuper.flowDirection = 'forward';           % flow field direction
+    mainSuper.flowDirection = 'backward';           % flow field direction
     
     % Operator details
     mainSuper.interpMethod  = 'average';            % Downsampling operator D
     mainSuper.k = fspecial('gaussian',7,sqrt(0.6));% Blur operator B
-    mainSuper.VDSRFlag      = true;                 % Enable VDSR initial guess
+    mainSuper.VDSRFlag      = false;                 % Enable VDSR initial guess
     
     
     %% Init flow field and solvers and run MMC
+
     t2 = tic;
-    mainSuper.init_v0;
-    OFTime(kk) = toc(t2); %#ok<*SAGROW>
-    
     mainSuper.init;
+    OFTime(kk) = toc(t2); %#ok<*SAGROW>
+
     t3 = tic;
     mainSuper.run;
     
@@ -98,7 +106,18 @@ for kk = 1:length(data)
         delete([writeFolder,filesep,data{kk},'output/*.png'])
     end
     for ii = 1:numFrames
-        imwrite(mainSuper.result1(:,:,:,ii),[writeFolder,filesep,data{ii},'/output/','Frame',num2str(jj,'%03d'),'.png']);
+        imwrite(mainSuper.result1(:,:,:,ii),[writeFolder,filesep,data{kk},'/output/','Frame',num2str(ii,'%03d'),'.png']);
     end
     
+    %% Stat Structure
+    statblock.OFTime(kk) = OFTime(kk);
+    statblock.algTime(kk) = algTime(kk);
+    statblock.totalTime(kk) = totalTime(kk);
+    
+    statblock.psnrErrMid(kk) = psnrErrMid(kk);
+    statblock.ssimErrMid(kk) = ssimErrMid(kk); 
+    statblock.psnrErrMean(kk)= psnrErrMean(kk);
+    statblock.ssimErrMean(kk)= ssimErrMean(kk);
+    statblock.iterDone = kk;
+    save('statblock.mat','statblock');
 end

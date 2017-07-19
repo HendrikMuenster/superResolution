@@ -17,17 +17,17 @@ cslice = ceil(numFrames/2);
 factor = 4;                         % magnification factor
 
 %% Load Video and code
-dataFolder = 'D:\Dropbox\Uni\Projects\2016 - SuperResolutionMunich\superResolutionData';
+dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
 [imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor,'bicubic',0);   
 
 
 
 %% Run Single frame motion coupling
 alpha = 0.05;
-beta = 0.1;
-
-imgSR = singleframeMotionSR(imageSequenceSmall,factor,alpha,beta);
-
+beta = 0.2;
+tic
+imgSR = singleframeMotionSR_unger(imageSequenceSmall,factor,alpha,beta);
+toc
 %% Show error margin
 
 outImage = imgSR(20:end-20,20:end-20,:);
