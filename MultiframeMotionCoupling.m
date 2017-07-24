@@ -36,9 +36,10 @@ classdef MultiframeMotionCoupling< handle
         % Solver options
         framework          % Choice of framework prost/flexBox
         MMCsolver          % main solver object for u subproblem
+        comp_mode          % mode preset, i.e. 'fast' or 'accurate'
         
         % Options
-        opts               % prost options
+        opts               % prost options          
         
         % Parameters
         alpha              % weights for regularizer of u
@@ -66,6 +67,10 @@ classdef MultiframeMotionCoupling< handle
         flowCompute        % no flow needs to be computed if it is given by mechanics or previous runs
         VDSRFlag            % Use bicubic or VDSR initial guess
         
+    end
+    
+    properties (Access = private)
+        tol_pd            % primal dual tolerance (set by comp_mode)
     end
     
     methods
@@ -163,7 +168,8 @@ classdef MultiframeMotionCoupling< handle
             % will be constructed in init_u_... call
             
             % default SR solver:
-            obj.framework = 'prost';
+            obj.framework = 'flexBox';
+            obj.comp_mode = 'accurate';
             
             % Will be initialized in init_u calls
             %obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 10, ...
@@ -199,8 +205,17 @@ classdef MultiframeMotionCoupling< handle
                 disp('Initialization...')
             end
             
+            %%% Here should be a step validating all public parameters %%%
+            
             % update sizes to account for factor changes
             obj.dimsLarge = obj.factor*obj.dimsSmall;
+            
+            % Set tolerances
+            if strcmp(obj.comp_mode,'accurate')
+                obj.tol_pd = 1e-6;
+            else
+                obj.tol_pd = 1e-3;
+            end
             
             % Call actual flow method
             if obj.flowCompute
@@ -230,14 +245,21 @@ classdef MultiframeMotionCoupling< handle
             
             %%%% Create backend and options
             
-            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 10, ...
-                'sigma0', 0.1);                       % prost backend options
-            obj.opts.opts = prost.options('max_iters', 15000, 'num_cback_calls', 5,...
-                'verbose', true);%, ...
-            %'tol_rel_primal', 1e-10, ...
-            %'tol_rel_dual', 1e-10, ...
-            %'tol_abs_dual', 1e-10, ...
-            %'tol_abs_primal', 1e-10);                % optional prost precision options
+            obj.opts.backend = prost.backend.pdhg('stepsize', 'boyd','tau0', 1, ...
+                'sigma0', 1);                       % prost backend options
+            %obj.opts.backend = prost.backend.pdhg('stepsize', 'goldstein', ...
+            %                 'residual_iter', 100);
+            if strcmp(obj.comp_mode,'accurate')
+                iters = 7500;
+            else
+                iters = 2500;
+            end
+            obj.opts.opts = prost.options('max_iters', iters, 'num_cback_calls', 5,...
+                                          'verbose', true);% ...
+                                          ...'tol_rel_primal', 5e-4, ...
+                                          ...'tol_rel_dual', 5e-4);% ...
+                                          ...'tol_abs_dual', obj.tol_pd, ...
+                                          ...'tol_abs_primal', obj.tol_pd);                % optional prost precision options
             
             %%%% Create operators
             
@@ -506,11 +528,11 @@ classdef MultiframeMotionCoupling< handle
             
             %%%% Initialize flexBox variables and operators
             obj.MMCsolver = flexBox;
-            obj.MMCsolver.params.tol = 1e-4;
+            obj.MMCsolver.params.tol = 1e-8;%obj.tol_pd;
             obj.MMCsolver.params.tryCPP = 1;
             obj.MMCsolver.params.verbose = 1;
-            obj.MMCsolver.params.maxIt = 10000;
-            obj.MMCsolver.params.checkError = 10;
+            obj.MMCsolver.params.maxIt = 2500;
+            %obj.MMCsolver.params.checkError = 100;
             
             % Add primal variables u and w
             obj.MMCsolver.addPrimalVar([Ny,Nx,nc]); % u
@@ -518,7 +540,7 @@ classdef MultiframeMotionCoupling< handle
             
             % Build data term
             obj.MMCsolver.addTerm(L1dataTermOperator(1,kron(speye(nc),dsOp),obj.imageSequenceSmall(:)),1);
-            obj.MMCsolver.addTerm(boxConstraint(0,1,[Ny,Nx,nc]),1);
+            %obj.MMCsolver.addTerm(boxConstraint(0,1,[Ny,Nx,nc]),1);
             
             
             % Build infconv regularizer
@@ -628,11 +650,11 @@ classdef MultiframeMotionCoupling< handle
             %%%% initialize flexBox solver
             
             obj.MMCsolver = flexBox;
-            obj.MMCsolver.params.tol = 5e-4;
+            obj.MMCsolver.params.tol = 1e-12;%obj.tol_pd;
             obj.MMCsolver.params.tryCPP = 1;
             obj.MMCsolver.params.verbose = 1;
             obj.MMCsolver.params.maxIt = 2500;
-            obj.MMCsolver.params.checkError = 1;
+            %obj.MMCsolver.params.checkError = 1;
             
             % Add primal variables u and w
             for i = 1:2*nc
@@ -783,6 +805,9 @@ classdef MultiframeMotionCoupling< handle
                 
                 % Run motion estimator
                 motionEstimator.init;
+                if strcmp(obj.comp_mode,'fast')
+                    motionEstimator.steps = motionEstimator.steps(1);
+                end
                 motionEstimator.runPyramid;
                 
                 vTmp = motionEstimator.getResult;

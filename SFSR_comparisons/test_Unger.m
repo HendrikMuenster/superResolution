@@ -10,7 +10,7 @@ clearvars;
 datasetName = 'city';
 
 startFrame = 1;
-numFrames = 13;
+numFrames = 3;
 cslice = ceil(numFrames/2);
 
 

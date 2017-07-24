@@ -5,16 +5,16 @@
 % following their instructions
 
 
-%clearvars;
+clearvars;
 %addpath(genpath(cd)); 
 
 
 
 %% Data properties
-datasetName = 'city';
+datasetName = 'surfer';
 
 startFrame = 1;
-numFrames = 13;
+numFrames = 5;
 cslice = ceil(numFrames/2);
 
 factor  = 4;             % Magnification factor
@@ -38,9 +38,11 @@ mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
 % Procedure
 mainSuper.factor        = factor;              % magnification factor
 mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
-mainSuper.framework     = 'flexBox';           % Choose framework for super resolution problem
+mainSuper.framework     = 'prost';    % Choose framework for super resolution problem
                                                % Either 'flexBox' or 'flexBox_vector'
                                                % or 'prost', if installed
+mainSuper.comp_mode     = 'accurate';
+                                              
 
 % Problem parameters
 mainSuper.alpha         = 0.01;                % regularizer weight
@@ -58,12 +60,11 @@ mainSuper.VDSRFlag     = false;                 % Enable VDSR initial guess
 tic
 mainSuper.init;
 toc
-
 %% Solve super resolution problem
+
 tic
 mainSuper.run;
 toc
-
 %% Show error margin
 
 outImage = mainSuper.result1(20:end-20,20:end-20,:,ceil(numFrames/2));

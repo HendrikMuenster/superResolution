@@ -53,7 +53,7 @@ for kk = startHere:length(data)
     % Procedure
     mainSuper.factor        = factor;              % magnification factor
     mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
-    mainSuper.framework     = 'flexBox';           % Choose framework for super resolution problem
+    mainSuper.framework     = 'prost';           % Choose framework for super resolution problem
     
     % Problem parameters
     mainSuper.alpha         = 0.01;                % regularizer weight
