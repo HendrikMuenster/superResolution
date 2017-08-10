@@ -15,6 +15,7 @@
 % as a 4-D array in line 36.
 
 clearvars;
+addpath(genpath(cd))
 
 
 %% Data properties

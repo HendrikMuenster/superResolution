@@ -4,7 +4,7 @@ classdef MultiframeMotionCoupling< handle
     % EXAMPLE USAGE:
     % Given a video as 4-D matlab array vidLowRes, that we want to upsample
     % by a factor of 4, run
-    % MMC = MultiframeMotionCoupling(vidLowRes,'factor',4);
+    % MMC = MultiframeMotionCoupling(vidLowRes,'zoom_factor',4);
     % MMC.init;
     % MMC.run;
     % vidHighRes = MMC.result1;
@@ -123,8 +123,8 @@ classdef MultiframeMotionCoupling< handle
             end
             
             % Factor options
-            if (exist('factor','var'))
-                obj.factor = factor;
+            if (exist('zoom_factor','var'))
+                obj.factor = zoom_factor;
             else
                 obj.factor = 4;
             end
@@ -196,7 +196,7 @@ classdef MultiframeMotionCoupling< handle
             % will be constructed in init_u_... call
             
             % default SR solver:
-            obj.framework = 'flexBox';
+            obj.framework = 'prost';
             obj.comp_mode = 'accurate';
             
             % Will be initialized in init_u calls

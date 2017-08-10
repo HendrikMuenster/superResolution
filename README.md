@@ -1,4 +1,4 @@
-## Multiframe Motion Coupling for Video Super Resolution
+# Multiframe Motion Coupling for Video Super Resolution
 
 
 ## Authors
@@ -17,29 +17,33 @@ for a quick installation on a Linux system run the following to install all subm
 ```
 git clone https://github.com/HendrikMuenster/superResolution
 cd superResolution
-git submodule --init --recursive
+git submodule update --init
+cd flexBox
+git submodule update --init # we only need to initialize this here
+mkdir flexBox_CPP/build
+cd flexBox_CPP/build
+cmake -DUSE_CUDA=ON -DUSE_OPENMP=ON ../source
+make && make install
+cd ../../../prost
 mkdir prost/build
 cd prost/build
 cmake ..
 make
-cd ../../flexBox/flexBox_CPP
 mkdir build
-cd build 
-cmake -DUSE_CUDA=ON -DUSE_OPENMP=ON ../
+cd prost/build
+cmake ..
 make
-make install
 ```
 If necessary, run cmake-gui instead of cmake to easily set manual options (e.g. MATLAB installation path).
 It is also possible to install flexBox without CUDA (or without compiling the C++ submodule at all and
-running just MATLAB code.
+running just MATLAB code. Please notify us, if you have trouble compiling one of these modules.
 
 
 ## Usage
 For a quick example, given a video as a 4-D matlab array 'videoLowRes' that we want to upsample by a factor of 4,
 run the following commands in MATLAB:
 ```
-MMC = MultiframeMotionCoupling(videoLowRes);
-MMC.factor = 4;
+MMC = MultiframeMotionCoupling(videoLowRes,'zoom_factor',4);
 MMC.init;
 MMC.run;
 videoHighRes = MMC.result1;
@@ -54,7 +58,7 @@ To reproduce the results of the paper, use the (standard) parameters
 MMC.framework = 'prost';
 MMC.comp_mode = 'accurate';
 ```
-However you can also optionally use the flexBox framework for the super resolution step. 
+However you can also optionally use the 'flexBox' framework for the super resolution step. 
 Other than that, can change to computation mode to 'faster' (reducing speed) or 'fastest' 
 (reducing memory consumption and increasing speed), although no guarantee can be given on the
 quality of the results.
