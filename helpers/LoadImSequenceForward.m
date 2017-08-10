@@ -1,6 +1,6 @@
 function [imageSequenceSmall,imageSequenceLarge] = LoadImSequenceForward(datastr,startFrame,numFrames,factor,interpMethod,kernel,Quantize)
 % load  image sequence from folder datastr
-% downsample, trim and return
+% Do not use this for actual testing, this is an 'inverse crime' example!!
 
 
 olddir = cd;

@@ -1,19 +1,19 @@
 classdef MultiframeMotionCouplingAlternating< MultiframeMotionCoupling
     %MultiframeMotionCoupling
     % Couple all frames successively and solve the super resolution problem
-    % alternate over high-res optical flow estimation and super-resolution
-    %
-    %
-    %
+    % alternating over high-res optical flow estimation and super-resolution
+    % 
+    % this class takes the ground truth videos as additional input so it can
+    % give PSNR estimates after each iteration.
     %
     %
     
     %% Class properties:
     properties
-        outerIts            % number of outer iterations
-        currentIt           % current outer iteration
-        psnrVals            % psnrVals for each frame per iteration
-        imageSequenceLarge  % for psnr check
+        outerIts@double scalar            % number of outer iterations
+        currentIt@double scalar           % current outer iteration
+        psnrVals@double                   % psnrVals for each frame per iteration
+        imageSequenceLarge@double         % for psnr check
        
     end
     

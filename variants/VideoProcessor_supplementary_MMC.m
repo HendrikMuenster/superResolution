@@ -5,7 +5,7 @@
 % in folder data/input in the first step and in the second step runs the 
 % MMC algorithm for all frames, writing result1, result2, u-w and w into output folders
 %
-% The size of the batches has to be chosen manually relative to GPU memory.
+% The size of the batches has to be chosen manually.
 
 %% Control
 
@@ -14,7 +14,7 @@ data = {'surfing','city','calendar_high','foreman'};
 
 
 % Specify data location !
-dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/video_scenes_long/';
+dataFolder = '';
 
 % specify sampling method
 downSamplingMethod = 'bicubic';
@@ -23,7 +23,7 @@ factor             = 4;        % output is to be upsampled  by this factor
 writeNewInput      = 0;
 
 
-% MMC parameters
+% MMC batch size examples, NVIDIA Titan
 % 31 is ok for calendar
 % 23 is ok for city 
 % 89 is ok for foreman 
@@ -89,7 +89,7 @@ end
 for ii = 1:length(data)
     
     % output folder name
-    out_name = '/outputMMC_MON_3';
+    out_name = '/outputMMC';
     % Read input file structure
     dataAdress = [dataFolder,filesep,data{ii},filesep,'input',filesep];
     fileStruct = dir([dataAdress,'*.png']);
@@ -143,17 +143,7 @@ for ii = 1:length(data)
         end
         mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'u0_frame',u0_frame,'w0_frame',w0_frame);
         mainSuper.factor         = factor;       % magnification factor
-        mainSuper.verbose        = 1;            % enable intermediate output, 1 is text, 2 is image
-        
-        % Problem parameters
-        mainSuper.alpha          = 0.01;                % temporal weight
-        mainSuper.beta           = 0.2;                 % flow field complexity
-        mainSuper.kappa          = 0.25;                % regularization pendulum
-        mainSuper.flowDirection  = 'forward';
 
-        % Operator details
-        mainSuper.interpMethod   = 'average';
-        mainSuper.k              = fspecial('gaussian',7,sqrt(0.6));
         % Run the thing
         mainSuper.init;
         mainSuper.run;

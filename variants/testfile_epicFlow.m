@@ -13,12 +13,13 @@
 
 
 clearvars;
-addpath(genpath(cd)); 
+
 
 
 
 %% Data properties
 datasetName = 'surfer';
+dataFolder = 'data/video_scenes/';
 
 startFrame = 5;
 numFrames = 5;
@@ -28,7 +29,7 @@ cslice = ceil(numFrames/2);
 factor = 4;       % Magnification factor
 
 %% Data generation process 
-dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
+
 [imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor,'bicubic');   
 
 
@@ -71,23 +72,6 @@ end
 %% Construct algorithm object
 % Input: RGB-Time matlab array 
 mainSuper = MultiframeMotionCoupling(imageSequenceSmall,'flowField',v);
-
-%% Set variables
-
-% Procedure
-mainSuper.factor        = factor;              % magnification factor
-mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
-
-% Problem parameters
-mainSuper.alpha         = 0.01;                % regularizer weight
-mainSuper.beta          = 0.2;                 % flow field complexity
-mainSuper.kappa         = 0.25;                % regularization pendulum
-mainSuper.flowDirection = 'backward';           % flow field direction
-
-% Operator details
-mainSuper.interpMethod = 'average';            % Downsampling operator D
-mainSuper.k = fspecial('gaussian',7,sqrt(0.6));% Blur operator B  
-
 
 %% Init flow field and solvers
 tic

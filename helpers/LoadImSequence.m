@@ -22,13 +22,6 @@ imtest = im2double(imread(fileStruct(startFrame).name));
 [xLarge,yLarge,color] = size(imtest);
 
 
-%     factest = 0.5;
-%     while xLarge > 1280 || yLarge > 1280
-%         xLarge = xLarge*factest;
-%         yLarge = yLarge*factest;
-%         factest = factest*0.5;
-%     end
-
 
 if mod(xLarge/factor,1) || mod(yLarge/factor,1)
     error('input image is not easily dividable by target factor, do something...');
@@ -52,9 +45,10 @@ for jj = 1:numFrames
     imTemp = imresize(imageSequenceLarge(:,:,:,jj),1/factor,downSamplingMethod, ...
                                    'Antialiasing',true,'Dither',true); 
                                
+    % optional: explicit quantization and conversion                           
     if doJPEG
-        imwrite(imTemp,'tempImg.jpg','jpeg','Quality',100); % write to file to remove and JIT optimization
-        imTemp = imread('tempImg.jpg');
+        imwrite(imTemp,'tempImg.jpg','jpeg','Quality',100); % write to file
+        imTemp = imread('tempImg.jpg');                     % read from file
     end
     imageSequenceSmall(:,:,:,jj) = im2double(imTemp);                     
 end

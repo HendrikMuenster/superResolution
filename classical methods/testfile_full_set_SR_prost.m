@@ -1,4 +1,4 @@
-%% MULTIFRAME MOTION COUPLING FOR VIDEO SUPER RESOLUTION
+%% CLASSICAL MOTION COUPLING FOR VIDEO SUPER RESOLUTION
 %
 %
 % Be sure to initialize the submodules and to compile them
@@ -6,9 +6,10 @@
 
 
 clearvars;
-%addpath(genpath(cd)); use floated flexBox
-if exist('statblock_sr.mat','file')
-    load('statblock_sr.mat');
+
+
+if exist('statblock_sr_prost.mat','file')
+    load('statblock_sr_prost.mat');
     startHere = statblock.iterDone+1;
 else
     startHere = 1;
@@ -17,8 +18,8 @@ end
 
 %% Data properties
 data = {'tube3','city','calendar_high','foliage_high','walk_high','foreman','temple','penguins','sheets','surfer','wave','surferdog'};
-dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
-writeFolder = '/windows/DataJonas/ScieboLocalFolder/Data/MMC_result';
+dataFolder = 'data/video_scenes/';
+writeFolder = 'results/classical_results';
 startFrame = 1;
 numFramesList = [ones(6,1)*13;ones(6,1)*5];
 factor  = 4;             % Magnification factor
@@ -45,11 +46,15 @@ for kk = startHere:length(data)
     
     %% Run SingleFrame SuperResolution
     t1 = tic;
-    alpha = 0.05;
+    alpha = 0.1;
+    huber_eps = 0.01;
     beta = 0.2;
-    imgSR = singleframeMotionSR_mitzel(imageSequenceSmall,factor,alpha,beta);
-    %imgSR = singleframeMotionSR_unger(imageSequenceSmall,factor,alpha,beta);
+    %[imgSR,timings] = singleframeMotionSR_mitzel_prost(imageSequenceSmall,factor,alpha,beta,'accurate');
+    [imgSR,timings] = singleframeMotionSR_mitzel_prost_corrected(imageSequenceSmall,factor,alpha,beta,'accurate');
+    %[imgSR,timings] = singleframeMotionSR_unger_prost(imageSequenceSmall,factor,alpha,beta,huber_eps,'accurate');
     
+    OFTime(kk) = timings(1);
+    algTime(kk) = timings(2);
     totalTime(kk) = toc(t1); %#ok<*SAGROW>
     
     %% Central point error
@@ -85,9 +90,11 @@ for kk = startHere:length(data)
     
     %% Stat Structure
     statblock.timeMidFrame(kk) = totalTime(kk);
+    statblock.OFTime(kk) = OFTime(kk);
+    statblock.algTime(kk) = algTime(kk);
     
     statblock.psnrErrMid(kk) = psnrErrMid(kk);
     statblock.ssimErrMid(kk) = ssimErrMid(kk);
     statblock.iterDone = kk;
-    save('statblock_sr.mat','statblock');
+    save('statblock_sr_prost.mat','statblock');
 end

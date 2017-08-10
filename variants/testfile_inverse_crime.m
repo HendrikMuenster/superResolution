@@ -3,56 +3,56 @@
 % 
 % Be sure to initialize the submodules and to compile them
 % following their instructions
-
-
-clearvars;
-%addpath(genpath(cd)); 
-cd ~/MATLAB/superResolution
-
-
+% Total equivalence of forward and backward model, with an easy downsampling procedure.
+% 
 %% Data properties
-datasetName = 'surfer';
 
-startFrame = 1;
-numFrames = 5;
+startFrame = 23;
+numFrames = 13; 
 cslice = ceil(numFrames/2);
 
 factor  = 4;             % Magnification factor
 
 
-%% Data generation process 
-dataFolder = '/windows/DataJonas/ScieboLocalFolder/Data/videos_scenes/';
-[imageSequenceSmall,imageSequenceLarge] = LoadImSequence([dataFolder,filesep,datasetName],startFrame,numFrames,factor,'bicubic');   
+%% Load VSR data
+dataLoc = '../data/video_scenes/city';
 
+  
+
+% Generate data with 
+interpMethod = 'stride';            % Downsampling operator D
+k = fspecial('gaussian',7,1.6);       % Blur operator B  
+Quantize = false;
+[imageSequenceSmall,imageSequenceLarge] = LoadImSequenceForward(dataLoc,startFrame,numFrames,factor,interpMethod,k,Quantize);  
 
 
 %% Construct algorithm object
 % Input: RGB-Time matlab array 
-mainSuper = MultiframeMotionCouplingAlternating(imageSequenceSmall,imageSequenceLarge);
+mainSuper = MultiframeMotionCoupling(imageSequenceSmall);
 
 %% Set variables (these are the standard parameters)
 
 % Procedure
-mainSuper.outerIts      = 15;
 mainSuper.factor        = factor;              % magnification factor
 mainSuper.verbose       = 1;                   % enable intermediate output, 1 is text, 2 is image
-mainSuper.framework     = 'prost';    % Choose framework for super resolution problem
+mainSuper.framework     = 'prost';             % Choose framework for super resolution problem
                                                % Either 'flexBox' or 'flexBox_vector'
                                                % or 'prost', if installed
 
 % Problem parameters
-mainSuper.alpha         = 0.01;                % regularizer weight
-mainSuper.beta          = 0.2;                 % flow field complexity
-mainSuper.kappa         = 0.25;                % regularization pendulum
-mainSuper.flowDirection = 'forward';           % flow field direction
+mainSuper.alpha         = 0.05;                % regularizer weight
+mainSuper.beta          = 1;                 % flow field complexity
+mainSuper.kappa         = NaN;                 % regularization balance
+mainSuper.flowDirection = 'backward';          % flow field direction
 
 % Operator details
-mainSuper.interpMethod = 'average';            % Downsampling operator D
-mainSuper.k = fspecial('gaussian',7,sqrt(0.6));% Blur operator B  
-mainSuper.VDSRFlag     = false;                 % Enable VDSR initial guess
-%vl_setupnn()
+mainSuper.interpMethod = interpMethod;         % Downsampling operator D'average';%
+mainSuper.k = k;                               % Blur operator B 
+
+
 
 %% Init flow field and solvers
+
 tic
 mainSuper.init;
 toc
@@ -73,10 +73,11 @@ disp(['SSIM (central patch, central slice): ',num2str(ssimErr),' ']);
 
 %% Visualize either central image or full video
 if mainSuper.verbose > 0
-     vid = implay(mainSuper.result1,2);  
+     vid = implay(mainSuper.result1);  
      set(vid.Parent, 'Position',get(0, 'Screensize'));
 else
     figure(1), imshow(outImage); title(['PSNR: ', num2str(psnrErr)]); axis image
 end
 %% 
 disp('---------------------------------------------------------------------')
+
